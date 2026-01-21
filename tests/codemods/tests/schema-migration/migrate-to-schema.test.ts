@@ -701,4 +701,24 @@ export default class AuditLog extends Model.extend(AuditableMixin) {
 
     expect(collectFilesSnapshot(dataDir)).toMatchSnapshot('type-only import files');
   });
+
+  it('typed model with multiline declarations', async () => {
+    prepareFiles(tempDir, {
+      'app/models/typed.ts': `
+import Model, { attr, belongsTo, hasMany } from '@ember-data/model';
+
+export default class TestModel extends Model {
+  @attr('string') declare name: string | null;
+  @belongsTo('user', { async: false, inverse: null })
+  declare owner: unknown;
+  @hasMany('tag', { async: true, inverse: null })
+  declare tags: unknown;
+}
+`,
+    });
+
+    await runMigration(options);
+    const dataDir = join(tempDir, 'app/data');
+    expect(collectFilesSnapshot(dataDir)).toMatchSnapshot();
+  });
 });
