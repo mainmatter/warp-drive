@@ -1,5 +1,7 @@
 import type { SgNode } from '@ast-grep/napi';
 import { Lang, parse } from '@ast-grep/napi';
+import { existsSync, readFileSync } from 'fs';
+import { dirname, resolve } from 'path';
 
 export interface TransformOptions {
   verbose?: boolean;
@@ -7,14 +9,26 @@ export interface TransformOptions {
   dryRun?: boolean;
   /** Use @warp-drive-mirror instead of @warp-drive for imports */
   mirror?: boolean;
+  /** Test mode - treats all mixins as connected to models (for testing) */
+  testMode?: boolean;
+  /** Set of absolute file paths for mixins that are connected to models */
+  modelConnectedMixins?: Set<string>;
+  /** List of all discovered mixin file paths (for polymorphic detection) */
+  allMixinFiles?: string[];
+  /** List of all discovered model file paths (for resource vs trait detection) */
+  allModelFiles?: string[];
   /** Specify alternate import sources for EmberData decorators (default: '@ember-data/model') */
   emberDataImportSource?: string;
-  /** List of intermediate model class import paths that should be converted to traits (e.g., ['soxhub-client/core/base-model', 'soxhub-client/core/data-field-model']) */
+  /** List of intermediate model class import paths that should be converted to traits (e.g., ['my-app/core/base-model', 'my-app/core/data-field-model']) */
   intermediateModelPaths?: string[];
+  /** List of intermediate fragment class import paths that should be converted to traits (e.g., ['app/fragments/base-fragment']) */
+  intermediateFragmentPaths?: string[];
   /** Specify base import path for existing model imports to detect and replace (required) */
   modelImportSource?: string;
   /** Specify base import path for existing mixin imports to detect and replace (optional) */
   mixinImportSource?: string;
+  /** Map source directories to their import paths for relative import resolution */
+  directoryImportMapping?: Record<string, string>;
   /** Directory containing model files for resolving absolute model imports */
   modelSourceDir?: string;
   /** Directory containing mixin files for resolving absolute mixin imports */
@@ -23,6 +37,8 @@ export interface TransformOptions {
   additionalModelSources?: Array<{ pattern: string; dir: string }>;
   /** Additional mixin source patterns and their corresponding directories */
   additionalMixinSources?: Array<{ pattern: string; dir: string }>;
+  /** Base import prefix for the application (e.g., 'my-app') */
+  appImportPrefix: string;
   /** Specify base import path for new resource type imports (required) */
   resourcesImport?: string;
   /** Directory to write generated resource schemas to */
@@ -39,6 +55,21 @@ export interface TransformOptions {
   typeMapping?: Record<string, string>;
   /** Internal flag to indicate we're processing an intermediate model that should become a trait */
   processingIntermediateModel?: boolean;
+  /** Input directory for scanning models and mixins (default: './app') */
+  inputDir?: string;
+  /** Output directory for generated schema files (default: './app/schemas') */
+  outputDir?: string;
+  /** Configuration for the Store type to include in generated intermediate model traits */
+  storeType?: {
+    /** Name of the Store type (default: 'Store') */
+    name?: string;
+    /** Import path for the Store type (e.g., 'my-app/services/store') */
+    import: string;
+  };
+  /** Set of model base names that have extension files generated (for preferring extension imports) */
+  modelsWithExtensions?: Set<string>;
+  /** Generate resource schemas for external (non-local) model files */
+  generateExternalResources?: boolean;
 }
 
 /**
@@ -74,17 +105,43 @@ export function generateWarpDriveTypeImport(
 }
 
 /**
+ * Derive the Type symbol import path from the emberDataImportSource
+ * e.g., @auditboard/warp-drive/v1/model -> @auditboard/warp-drive/v1/core-types/symbols
+ *       @ember-data/model -> @warp-drive/core/types/symbols
+ */
+function getTypeSymbolImportPath(emberDataSource: string): string {
+  // If using a custom ember-data source with a package prefix, derive the symbols path
+  if (emberDataSource.includes('/model')) {
+    // Replace /model with /core-types/symbols for custom packages
+    // e.g., @auditboard/warp-drive/v1/model -> @auditboard/warp-drive/v1/core-types/symbols
+    return emberDataSource.replace(/\/model$/, '/core-types/symbols');
+  }
+  // Default to the standard warp-drive path
+  return '@warp-drive/core/types/symbols';
+}
+
+/**
  * Generate common WarpDrive type imports
  */
 export function generateCommonWarpDriveImports(options?: TransformOptions): {
   typeImport: string;
   asyncHasManyImport: string;
   hasManyImport: string;
+  storeImport: string;
 } {
+  const emberDataSource = options?.emberDataImportSource || DEFAULT_EMBER_DATA_SOURCE;
+  const typeSymbolPath = getTypeSymbolImportPath(emberDataSource);
+  // Derive store import path from emberDataSource
+  // e.g., @auditboard/warp-drive/v1/model -> @auditboard/warp-drive/v1/store
+  //       @ember-data/model -> @warp-drive/core
+  const storeImportPath = emberDataSource.includes('/model')
+    ? emberDataSource.replace(/\/model$/, '/store')
+    : '@warp-drive/core';
   return {
-    typeImport: generateWarpDriveTypeImport('Type', '@warp-drive/core/types/symbols', options),
-    asyncHasManyImport: generateWarpDriveTypeImport('AsyncHasMany', '@ember-data/model', options),
-    hasManyImport: generateWarpDriveTypeImport('HasMany', '@ember-data/model', options),
+    typeImport: generateWarpDriveTypeImport('Type', typeSymbolPath, options),
+    asyncHasManyImport: generateWarpDriveTypeImport('AsyncHasMany', emberDataSource, options),
+    hasManyImport: generateWarpDriveTypeImport('HasMany', emberDataSource, options),
+    storeImport: generateWarpDriveTypeImport('Store', storeImportPath, options),
   };
 }
 
@@ -109,19 +166,186 @@ export function getResourcesImport(options?: TransformOptions): string {
 }
 
 /**
- * Transform a model type name to a resource type import path
- * e.g., 'user' with modelImportSource 'my-app/models' and resourcesImport 'my-app/data/resources'
- * becomes 'my-app/data/resources/user.schema.types'
+ * Check if a type should be imported from traits instead of resources
+ * This checks if the type corresponds to a connected mixin or intermediate model
+ */
+function shouldImportFromTraits(relatedType: string, options?: TransformOptions): boolean {
+  // Check if any of the connected mixins correspond to this related type
+  const connectedMixins = options?.modelConnectedMixins;
+  if (connectedMixins) {
+    for (const mixinPath of connectedMixins) {
+      // Extract the mixin name from the path
+      const mixinName = extractBaseName(mixinPath);
+      if (mixinName === relatedType) {
+        return true;
+      }
+    }
+  }
+
+  // Check if any of the intermediate models correspond to this related type
+  const intermediateModelPaths = options?.intermediateModelPaths;
+  if (intermediateModelPaths) {
+    for (const modelPath of intermediateModelPaths) {
+      // Extract the trait name from the model path using the same logic as generateIntermediateModelTraitArtifacts
+      // e.g., "my-app/core/data-field-model" -> "data-field"
+      const traitBaseName =
+        modelPath
+          .split('/')
+          .pop()
+          ?.replace(/-?model$/i, '') || modelPath;
+      const traitName = traitBaseName
+        .replace(/([A-Z])/g, '-$1')
+        .toLowerCase()
+        .replace(/^-/, '');
+
+      if (traitName === relatedType) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Transform a model type name to the appropriate import path
+ * Priority order:
+ * 1. Traits (for intermediate models/connected mixins)
+ * 2. Extensions (for models with extension files - gives full type with computed getters)
+ * 3. Resources (schema.types fallback)
+ *
+ * e.g., 'user' becomes 'my-app/data/extensions/user' if user has an extension
+ * e.g., 'user' becomes 'my-app/data/resources/user.schema.types' if no extension
+ * e.g., 'shareable' becomes 'my-app/data/traits/shareable.schema.types' if only shareable mixin exists
  */
 export function transformModelToResourceImport(
   relatedType: string,
   modelName: string,
   options?: TransformOptions
 ): string {
+  // Always check traits first for intermediate models (they're always traits)
+  if (shouldImportFromTraits(relatedType, options)) {
+    const traitsImport = options?.traitsImport;
+    // Trait interfaces are named with 'Trait' suffix but aliased back to non-suffix for backward compatibility
+    const traitInterfaceName = `${toPascalCase(relatedType)}Trait`;
+    const aliasName = toPascalCase(relatedType); // Use the original name as alias for backward compatibility
+    if (traitsImport) {
+      return `type { ${traitInterfaceName} as ${aliasName} } from '${traitsImport}/${relatedType}.schema.types'`;
+    } else {
+      return `type { ${traitInterfaceName} as ${aliasName} } from '../traits/${relatedType}.schema.types'`;
+    }
+  }
+
+  // Check if this model has an extension file - prefer extension imports for full type
+  // This gives consumers access to computed getters and other extension-defined properties
+  if (options?.modelsWithExtensions?.has(relatedType)) {
+    const extensionClassName = `${toPascalCase(relatedType)}Extension`;
+    const extensionsImport = options?.extensionsImport;
+    debugLog(options, `Model ${relatedType} has extension, importing from extension file`);
+    if (extensionsImport) {
+      return `type { ${extensionClassName} as ${modelName} } from '${extensionsImport}/${relatedType}'`;
+    } else {
+      return `type { ${extensionClassName} as ${modelName} } from '../extensions/${relatedType}'`;
+    }
+  }
+
+  // Check if we have a model for this related type
+  let hasModel = false;
+  const allModelFiles = options?.allModelFiles;
+  if (allModelFiles) {
+    for (const modelPath of allModelFiles) {
+      const modelBaseName = extractBaseName(modelPath);
+      if (modelBaseName === relatedType) {
+        hasModel = true;
+        debugLog(options, `Found model for ${relatedType}, using resource import`);
+        break;
+      }
+    }
+  }
+
+  // If no model found, check if we have a mixin/trait to fall back to
+  if (!hasModel) {
+    const allMixinFiles = options?.allMixinFiles;
+    if (allMixinFiles) {
+      for (const mixinPath of allMixinFiles) {
+        const mixinName = extractBaseName(mixinPath);
+        if (mixinName === relatedType) {
+          // Fall back to trait import
+          const traitsImport = options?.traitsImport;
+          const traitInterfaceName = `${toPascalCase(relatedType)}Trait`;
+          const aliasName = toPascalCase(relatedType);
+          debugLog(options, `No model found for ${relatedType}, falling back to trait`);
+          if (traitsImport) {
+            return `type { ${traitInterfaceName} as ${aliasName} } from '${traitsImport}/${relatedType}.schema.types'`;
+          } else {
+            return `type { ${traitInterfaceName} as ${aliasName} } from '../traits/${relatedType}.schema.types'`;
+          }
+        }
+      }
+    }
+  }
+
+  // Default to resource import (either we found a model, or we're assuming it's a resource)
   const resourcesImport = getResourcesImport(options);
-  // Use relatedType for the file path since that's the actual model name
-  // Use named import since interfaces are exported as named exports
+
   return `type { ${modelName} } from '${resourcesImport}/${relatedType}.schema.types'`;
+}
+
+/**
+ * Extract mapping from model types to their imported names by analyzing import statements
+ * e.g., 'import type UserModel from "./user"' maps "user" -> "UserModel"
+ */
+export function extractTypeNameMapping(root: SgNode, options?: TransformOptions): Map<string, string> {
+  const mapping = new Map<string, string>();
+
+  try {
+    // Find all import declarations
+    const imports = root.findAll({ rule: { kind: 'import_statement' } });
+
+    // Build the model import pattern from configuration
+    const modelImportSource = options?.modelImportSource;
+
+    for (const importNode of imports) {
+      const importText = importNode.text();
+
+      // Build regex pattern dynamically based on configuration
+      // Pattern: import type SomeName from './some-path' or '{modelImportSource}/some-path'
+      let regexPattern: RegExp;
+      if (modelImportSource) {
+        // Escape special regex characters in the import source
+        const escapedModelImportSource = modelImportSource.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        regexPattern = new RegExp(
+          `import\\s+type\\s+(\\w+)\\s+from\\s+['"](?:\\.\\/([^'"]+)|${escapedModelImportSource}\\/([^'"]+))['"];?`
+        );
+      } else {
+        // Fallback to only matching relative imports
+        regexPattern = /import\s+type\s+(\w+)\s+from\s+['"]\.\/([^'"]+)['"];?/;
+      }
+
+      const defaultImportMatch = importText.match(regexPattern);
+
+      if (defaultImportMatch) {
+        const [, importName, relativePath, absolutePath] = defaultImportMatch;
+        const modelPath = relativePath || absolutePath;
+
+        if (modelPath) {
+          // Extract the model type from the path (e.g., "user" from "./user" or "my-app/models/user")
+          const modelType = modelPath
+            .replace(/\.(js|ts)$/, '')
+            .split('/')
+            .pop();
+          if (modelType) {
+            debugLog(options, `Mapping model type '${modelType}' to import name '${importName}'`);
+            mapping.set(modelType, importName);
+          }
+        }
+      }
+    }
+  } catch (error: unknown) {
+    debugLog(options, `Error extracting type name mapping: ${String(error)}`);
+  }
+
+  return mapping;
 }
 
 /**
@@ -229,6 +453,8 @@ export interface PropertyInfo {
   value: string;
   /** Extracted TypeScript type information */
   typeInfo?: ExtractedType;
+  /** Whether this property is defined using object method syntax */
+  isObjectMethod?: boolean;
 }
 
 /**
@@ -355,8 +581,11 @@ export function getMixinImports(root: SgNode, options?: TransformOptions): Map<s
     let actualImportPath = importPath;
     if (isSpecialMixinImport(importPath, options)) {
       // Convert special mixin import to actual mixin path
-      if (importPath === 'soxhub-client/models/workflowable') {
-        actualImportPath = 'soxhub-client/mixins/workflowable';
+      // Use the configured modelImportSource and mixinImportSource
+      const modelImportSource = options?.modelImportSource;
+      const mixinImportSource = options?.mixinImportSource;
+      if (modelImportSource && mixinImportSource && importPath === `${modelImportSource}/workflowable`) {
+        actualImportPath = `${mixinImportSource}/workflowable`;
       }
     }
 
@@ -546,7 +775,7 @@ export function extractPascalCaseName(filePath: string): string {
  */
 export function generateExtensionCode(
   extensionName: string,
-  extensionProperties: Array<{ name: string; originalKey: string; value: string }>,
+  extensionProperties: Array<{ name: string; originalKey: string; value: string; isObjectMethod?: boolean }>,
   format: 'object' | 'class' = 'object',
   interfaceToExtend?: string,
   isTypeScript = true,
@@ -583,6 +812,12 @@ export function generateExtensionCode(
   // Object format used by mixin-to-schema transform
   const properties = extensionProperties
     .map((prop) => {
+      // If this is an object method syntax (method, getter, setter, etc.), use as-is
+      if (prop.isObjectMethod) {
+        return `  ${prop.value}`;
+      }
+
+      // For regular properties, use key: value syntax
       const key = prop.originalKey;
       return `  ${key}: ${prop.value}`;
     })
@@ -612,8 +847,28 @@ export function generateExtensionCode(
  */
 export function debugLog(options: TransformOptions | undefined, ...args: unknown[]): void {
   if (options?.debug) {
+    // eslint-disable-next-line no-console
     console.log(...args);
   }
+}
+
+/**
+ * Remove imports that are not needed in extension artifacts
+ * This only removes fragment imports since they're not needed in schema-record
+ */
+function removeUnnecessaryImports(source: string, options?: TransformOptions): string {
+  const linesToRemove = ['ember-data-model-fragments/attributes'];
+
+  const lines = source.split('\n');
+  const filteredLines = lines.filter((line) => {
+    // Check if this line is an import statement that should be removed
+    if (line.trim().startsWith('import ')) {
+      return !linesToRemove.some((importToRemove) => line.includes(importToRemove));
+    }
+    return true;
+  });
+
+  return filteredLines.join('\n');
 }
 
 /**
@@ -651,7 +906,7 @@ function processImports(source: string, filePath: string, baseDir: string, optio
         // Handle relative imports
         debugLog(options, `Processing relative import: ${cleanSourceText}`);
         isRelativeImport = true;
-        resolvedPath = resolveRelativeImport(cleanSourceText, filePath, baseDir, options);
+        resolvedPath = resolveRelativeImport(cleanSourceText, filePath, baseDir);
       } else if (isSpecialMixinImport(cleanSourceText, options)) {
         // Handle special cases where model imports are actually mixins (e.g., workflowable)
         debugLog(options, `Processing special mixin import: ${cleanSourceText}`);
@@ -697,10 +952,46 @@ function processImports(source: string, filePath: string, baseDir: string, optio
               options,
               `Found .schema.types import in TypeScript file, converting default to named: ${originalImport}`
             );
+
+            // Check if this is a trait import (from traits/ directory)
+            const isTraitImport = convertedImport.includes('/traits/');
+            // Extract the trait/resource base name from the import path
+            const pathMatch = convertedImport.match(/\/(traits|resources)\/([^/'"]+)\.schema\.types$/);
+            const baseName = pathMatch ? pathMatch[2] : null;
+
             // Convert "import type ModelName from 'path'" to "import type { ModelName } from 'path'"
-            newImport = newImport.replace(/import\s+type\s+([A-Z][a-zA-Z0-9]*)\s+from/g, 'import type { $1 } from');
+            // Handle Model suffix by creating aliased imports
+            // Handle Trait imports by using the correct Trait suffix export name
+            newImport = newImport.replace(
+              /import\s+type\s+([A-Z][a-zA-Z0-9]*)\s+from/g,
+              (_match: string, typeName: string) => {
+                if (typeName.endsWith('Model')) {
+                  const interfaceName = typeName.slice(0, -5); // Remove 'Model' suffix
+                  return `import type { ${interfaceName} as ${typeName} } from`;
+                }
+                // For trait imports, the export is *Trait but the import name might not have Trait suffix
+                if (isTraitImport && baseName && !typeName.endsWith('Trait')) {
+                  const traitClassName = toPascalCase(baseName) + 'Trait';
+                  return `import type { ${traitClassName} as ${typeName} } from`;
+                }
+                return `import type { ${typeName} } from`;
+              }
+            );
             // Also handle imports without 'type' keyword
-            newImport = newImport.replace(/import\s+([A-Z][a-zA-Z0-9]*)\s+from/g, 'import type { $1 } from');
+            newImport = newImport.replace(
+              /import\s+([A-Z][a-zA-Z0-9]*)\s+from/g,
+              (_match: string, typeName: string) => {
+                if (typeName.endsWith('Model')) {
+                  const interfaceName = typeName.slice(0, -5); // Remove 'Model' suffix
+                  return `import type { ${interfaceName} as ${typeName} } from`;
+                }
+                if (isTraitImport && baseName && !typeName.endsWith('Trait')) {
+                  const traitClassName = toPascalCase(baseName) + 'Trait';
+                  return `import type { ${traitClassName} as ${typeName} } from`;
+                }
+                return `import type { ${typeName} } from`;
+              }
+            );
             debugLog(options, `Converted default import to named import: ${newImport}`);
           } else if (convertedImport.includes('.schema.types') && filePath.endsWith('.js')) {
             debugLog(
@@ -709,8 +1000,40 @@ function processImports(source: string, filePath: string, baseDir: string, optio
             );
             // For JavaScript files, we should not use TypeScript import type syntax
             // The import should remain as a regular import, not converted to named import
+          } else if (convertedImport.includes('/extensions/') && filePath.endsWith('.ts')) {
+            // Extension files export named classes with 'Extension' suffix
+            // Convert "import type User from '.../extensions/user'" to
+            // "import type { UserExtension as User } from '.../extensions/user'"
+            // Or "import type UserModel from '.../extensions/user'" to
+            // "import type { UserExtension as UserModel } from '.../extensions/user'"
+            debugLog(
+              options,
+              `Found extension import in TypeScript file, converting default to named: ${originalImport}`
+            );
+            // Extract the model base name from the import path to get correct Extension class name
+            const extensionPathMatch = convertedImport.match(/\/extensions\/([^/'"]+)$/);
+            const modelBaseName = extensionPathMatch ? extensionPathMatch[1] : null;
+            const extensionClassName = modelBaseName ? toPascalCase(modelBaseName) + 'Extension' : null;
+
+            if (extensionClassName) {
+              newImport = newImport.replace(
+                /import\s+type\s+([A-Z][a-zA-Z0-9]*)\s+from/g,
+                (_match: string, typeName: string) => {
+                  // Use the extension class name from the path, alias to the original import name
+                  return `import type { ${extensionClassName} as ${typeName} } from`;
+                }
+              );
+              // Also handle imports without 'type' keyword
+              newImport = newImport.replace(
+                /import\s+([A-Z][a-zA-Z0-9]*)\s+from/g,
+                (_match: string, typeName: string) => {
+                  return `import type { ${extensionClassName} as ${typeName} } from`;
+                }
+              );
+              debugLog(options, `Converted extension import to named import: ${newImport}`);
+            }
           } else {
-            debugLog(options, `Not a .schema.types import, skipping conversion: ${convertedImport}`);
+            debugLog(options, `Not a .schema.types or extension import, skipping conversion: ${convertedImport}`);
           }
 
           processedSource = processedSource.replace(originalImport, newImport);
@@ -800,7 +1123,9 @@ function isMixinImportPath(importPath: string, options?: TransformOptions): bool
  */
 function isSpecialMixinImport(importPath: string, options?: TransformOptions): boolean {
   // Special case: workflowable is imported from models but is actually a mixin
-  if (importPath === 'soxhub-client/models/workflowable') {
+  // Use the configured modelImportSource to detect this pattern
+  const modelImportSource = options?.modelImportSource;
+  if (modelImportSource && importPath === `${modelImportSource}/workflowable`) {
     return true;
   }
 
@@ -814,8 +1139,18 @@ function isSpecialMixinImport(importPath: string, options?: TransformOptions): b
 function resolveSpecialMixinImport(importPath: string, baseDir: string, options?: TransformOptions): string | null {
   try {
     // Special case: workflowable from models -> mixins/workflowable
-    if (importPath === 'soxhub-client/models/workflowable') {
-      const mixinPath = `${baseDir}/apps/client/app/mixins/workflowable.js`;
+    // Use the configured modelImportSource and mixinSourceDir to resolve
+    const modelImportSource = options?.modelImportSource;
+    if (modelImportSource && importPath === `${modelImportSource}/workflowable`) {
+      // Use the configured mixin source directory, or fall back to deriving from the app import prefix
+      const mixinSourceDir = options?.mixinSourceDir;
+      if (mixinSourceDir) {
+        const mixinPath = `${mixinSourceDir}/workflowable.js`;
+        debugLog(options, `Resolved special mixin import ${importPath} to: ${mixinPath}`);
+        return mixinPath;
+      }
+      // Fallback: try to infer from baseDir
+      const mixinPath = `${baseDir}/app/mixins/workflowable.js`;
       debugLog(options, `Resolved special mixin import ${importPath} to: ${mixinPath}`);
       return mixinPath;
     }
@@ -854,14 +1189,13 @@ function resolveAbsoluteMixinImport(importPath: string, baseDir: string, options
     }
 
     // Extract the mixin name from the import path
-    // e.g., 'soxhub-client/mixins/permissable' -> 'permissable'
+    // e.g., 'my-app/mixins/permissable' -> 'permissable'
     const mixinName = importPath.replace(mixinSource.pattern, '');
 
     // Construct the file path (mixinSource.dir is already an absolute path)
     const filePath = `${mixinSource.dir}/${mixinName}.ts`;
 
     // Check if the file exists
-    const { existsSync } = require('fs');
     if (existsSync(filePath)) {
       return filePath;
     }
@@ -912,7 +1246,7 @@ function resolveAbsoluteModelImport(importPath: string, baseDir: string, options
     debugLog(options, `Found matching model source: ${JSON.stringify(modelSource)}`);
 
     // Extract the model name from the import path
-    // e.g., 'soxhub-client/models/notification-message' -> 'notification-message'
+    // e.g., 'my-app/models/notification-message' -> 'notification-message'
     const modelName = importPath.replace(modelSource.pattern, '');
     debugLog(options, `Extracted model name: ${modelName}`);
 
@@ -921,7 +1255,6 @@ function resolveAbsoluteModelImport(importPath: string, baseDir: string, options
     debugLog(options, `Trying file path: ${filePath}`);
 
     // Check if the file exists
-    const { existsSync } = require('fs');
     if (existsSync(filePath)) {
       debugLog(options, `Found model file: ${filePath}`);
       return filePath;
@@ -957,7 +1290,6 @@ function convertImportToAbsolute(
   try {
     // Check if the resolved file is a model file
     try {
-      const { readFileSync } = require('fs');
       const source = readFileSync(resolvedPath, 'utf8');
       if (isModelFile(resolvedPath, source, options)) {
         // Convert model import to resource schema import
@@ -1012,78 +1344,10 @@ function convertImportToAbsolute(
 }
 
 /**
- * Convert a relative import to the appropriate absolute import based on what type of file it points to
- */
-function convertRelativeImportToAbsolute(
-  originalImport: string,
-  resolvedPath: string,
-  baseDir: string,
-  importNode: SgNode,
-  options?: TransformOptions
-): string | null {
-  try {
-    // Check if the resolved file is a model file
-    try {
-      const { readFileSync } = require('fs');
-      const source = readFileSync(resolvedPath, 'utf8');
-      if (isModelFile(resolvedPath, source, options)) {
-        // Convert model import to resource schema import
-        const modelName = extractBaseName(resolvedPath);
-        const pascalCaseName = toPascalCase(modelName);
-        const resourceImport = transformModelToResourceImport(modelName, pascalCaseName, options);
-
-        // Extract just the import path from the full import statement
-        const importPathMatch = resourceImport.match(/from '([^']+)'/);
-        if (importPathMatch) {
-          debugLog(options, `Converting model import ${originalImport} to resource import: ${importPathMatch[1]}`);
-          return importPathMatch[1];
-        }
-      }
-    } catch (fileError) {
-      debugLog(options, `Error reading file ${resolvedPath}: ${String(fileError)}`);
-    }
-
-    // Check if this is a special mixin import
-    if (isSpecialMixinImport(originalImport, options)) {
-      // Convert special mixin import to trait import
-      const mixinName = extractBaseName(resolvedPath);
-      const traitName = mixinNameToTraitName(mixinName, true); // true for dasherized format
-      const traitImport = options?.traitsImport
-        ? `${options.traitsImport}/${traitName}.schema.types`
-        : `../traits/${traitName}.schema.types`;
-
-      debugLog(options, `Converting special mixin import ${originalImport} to trait import: ${traitImport}`);
-      return traitImport;
-    }
-
-    // Check if the resolved file is a mixin file
-    if (isMixinFile(resolvedPath, options)) {
-      // Convert mixin import to trait import
-      const mixinName = extractBaseName(resolvedPath);
-      const traitName = mixinNameToTraitName(mixinName, true); // true for dasherized format
-      const traitImport = options?.traitsImport
-        ? `${options.traitsImport}/${traitName}.schema.types`
-        : `../traits/${traitName}.schema.types`;
-
-      debugLog(options, `Converting mixin import ${originalImport} to trait import: ${traitImport}`);
-      return traitImport;
-    }
-
-    // For other files, convert to absolute import path
-    const absoluteImportPath = convertToAbsoluteImportPath(resolvedPath, baseDir, options);
-    return absoluteImportPath;
-  } catch (error) {
-    debugLog(options, `Error converting relative import: ${String(error)}`);
-    return null;
-  }
-}
-
-/**
  * Check if a file is a mixin file by analyzing its content
  */
 function isMixinFile(filePath: string, options?: TransformOptions): boolean {
   try {
-    const { readFileSync } = require('fs');
     const source = readFileSync(filePath, 'utf8');
 
     const lang = getLanguageFromPath(filePath);
@@ -1102,6 +1366,22 @@ function isMixinFile(filePath: string, options?: TransformOptions): boolean {
 }
 
 /**
+ * Determine if an export statement should remain exported in the extension file.
+ * We keep interfaces and type aliases exported so they can be imported by other files.
+ * Other declarations (classes, functions, consts) become internal to the extension.
+ */
+function shouldKeepExported(exportNode: SgNode): boolean {
+  // Get the declaration being exported
+  const declaration = exportNode.field('declaration');
+  if (!declaration) return false;
+
+  const kind = declaration.kind();
+
+  // Keep interface and type alias declarations exported
+  return kind === 'interface_declaration' || kind === 'type_alias_declaration';
+}
+
+/**
  * Create extension artifact by modifying the original file using AST
  * This preserves all imports, comments, and structure while replacing the class/export
  */
@@ -1110,11 +1390,12 @@ export function createExtensionFromOriginalFile(
   source: string,
   baseName: string,
   extensionName: string,
-  extensionProperties: Array<{ name: string; originalKey: string; value: string }>,
+  extensionProperties: Array<{ name: string; originalKey: string; value: string; isObjectMethod?: boolean }>,
   defaultExportNode: SgNode | null,
   options?: TransformOptions,
   interfaceToExtend?: string,
-  interfaceImportPath?: string
+  interfaceImportPath?: string,
+  sourceType: 'mixin' | 'model' = 'model'
 ): TransformArtifact | null {
   if (extensionProperties.length === 0) {
     return null;
@@ -1127,39 +1408,34 @@ export function createExtensionFromOriginalFile(
 
     debugLog(options, `Creating extension from ${filePath} with ${extensionProperties.length} properties`);
 
-    // Find the class declaration (for models) or mixin create call (for mixins)
-    const classDeclaration = root.find({ rule: { kind: 'class_declaration' } });
-    const mixinCreateCall = root.find({ rule: { kind: 'call_expression' } });
+    // Calculate expected target file path for the extension
+    const path = require('path');
+    const extensionsDir = options?.extensionsDir || './app/data/extensions';
+    const originalExt = filePath.endsWith('.ts') ? '.ts' : '.js';
+    const targetFilePath = path.join(path.resolve(extensionsDir), `${baseName}${originalExt}`);
 
-    if (!classDeclaration && !mixinCreateCall) {
-      debugLog(options, 'No class declaration or mixin create call found for extension generation');
-      return null;
-    }
+    // Update relative imports for the new extension location
+    const updatedSource = updateRelativeImportsForExtensions(source, root, options, filePath, targetFilePath);
+    debugLog(options, `Updated relative imports in source`);
 
-    const isMixin = !classDeclaration && mixinCreateCall;
-    debugLog(options, `Extension generation for ${isMixin ? 'mixin' : 'model'} file`);
+    // Determine format based on source type: mixins use object format, models use class format
+    const format = sourceType === 'mixin' ? 'object' : 'class';
 
-    // For mixin files, we can proceed without a class declaration
-
-    // Check if we need class syntax (decorators, getters, setters, async methods)
-    const needsClassSyntax = extensionProperties.some((prop) => {
-      const value = prop.value.trim();
-      return value.includes('@') || value.includes('get ') || value.includes('set ') || value.includes('async ');
-    });
+    debugLog(options, `Extension generation for ${sourceType} using ${format} format`);
 
     // Generate the extension class/object
     const isTypeScript = filePath.endsWith('.ts');
     const extensionCode = generateExtensionCode(
       extensionName,
       extensionProperties,
-      needsClassSyntax ? 'class' : 'object',
+      format,
       interfaceToExtend,
       isTypeScript,
       interfaceImportPath
     );
 
     // Use a simpler approach: remove the main class and append extension code
-    let modifiedSource = source;
+    let modifiedSource = updatedSource;
 
     // The main class will be handled in the export processing loop below
 
@@ -1178,7 +1454,13 @@ export function createExtensionFromOriginalFile(
         continue;
       }
 
-      // For non-default exports, remove the export keyword but keep the content
+      // Check if this is a type definition that should remain exported
+      if (shouldKeepExported(exportNode)) {
+        debugLog(options, `Keeping export for type definition: ${exportText.substring(0, 50)}...`);
+        continue;
+      }
+
+      // For non-type exports, remove the export keyword but keep the content
       // Simply replace "export " with empty string
       const contentWithoutExport = exportText.replace(/^export\s+/, '');
       debugLog(options, `Removing export keyword, keeping content: ${contentWithoutExport.substring(0, 50)}...`);
@@ -1190,6 +1472,11 @@ export function createExtensionFromOriginalFile(
     debugLog(options, `Processing imports for extension file: ${filePath}`);
     modifiedSource = processImports(modifiedSource, filePath, baseDir, options);
 
+    // Remove fragment imports only from model extensions (not mixin extensions)
+    if (sourceType === 'model') {
+      modifiedSource = removeUnnecessaryImports(modifiedSource, options);
+    }
+
     // Clean up extra whitespace and add the extension code
     modifiedSource = modifiedSource.trim() + '\n\n' + extensionCode;
 
@@ -1199,9 +1486,6 @@ export function createExtensionFromOriginalFile(
 
     debugLog(options, `Generated extension code (first 200 chars): ${modifiedSource.substring(0, 200)}...`);
     debugLog(options, `Extension code to add: ${extensionCode.substring(0, 200)}...`);
-
-    // Determine the file extension from the original file
-    const originalExt = filePath.endsWith('.ts') ? '.ts' : '.js';
 
     return {
       type: 'extension',
@@ -1216,10 +1500,159 @@ export function createExtensionFromOriginalFile(
 }
 
 /**
+ * Calculate correct relative import path when moving a file to a different directory
+ */
+function calculateRelativeImportPath(
+  sourceFilePath: string, // Original model file location
+  targetFilePath: string, // Extension file location
+  importedFilePath: string // What the relative import points to
+): string {
+  const path = require('path');
+  const sourceDir = path.dirname(sourceFilePath);
+  const absoluteImportPath = path.resolve(sourceDir, importedFilePath);
+  const targetDir = path.dirname(targetFilePath);
+  const newRelativePath = path.relative(targetDir, absoluteImportPath);
+
+  // Normalize and ensure ./ or ../ prefix
+  // Use forward slashes for import paths (even on Windows)
+  const normalized = newRelativePath.split(path.sep).join('/');
+  return normalized.startsWith('.') ? normalized : './' + normalized;
+}
+
+/**
+ * Update relative imports when moving from models/ to extensions/
+ * Uses directoryImportMapping to resolve relative imports to their original packages
+ */
+function updateRelativeImportsForExtensions(
+  source: string,
+  root: SgNode,
+  options?: TransformOptions,
+  sourceFilePath?: string,
+  targetFilePath?: string
+): string {
+  let result = source;
+
+  // Find all import statements
+  const imports = root.findAll({ rule: { kind: 'import_statement' } });
+
+  for (const importNode of imports) {
+    const sourceField = importNode.field('source');
+    if (!sourceField) continue;
+
+    const importSource = sourceField.text();
+    const importPath = removeQuotes(importSource);
+
+    // Transform relative imports to reference the appropriate package
+    if (importPath.startsWith('./') || importPath.startsWith('../')) {
+      let absoluteImportPath: string | undefined;
+
+      // First try directory import mapping if available
+      if (options?.directoryImportMapping && sourceFilePath) {
+        // Extract the base directory structure from the source file
+        const sourceDir = sourceFilePath.replace(/\/[^/]+\.(js|ts)$/, '');
+
+        // Look for a mapping that matches the source directory structure
+        for (const [mappedDir, importBase] of Object.entries(options.directoryImportMapping)) {
+          if (sourceDir.includes(mappedDir)) {
+            // Calculate the resolved path from the source directory
+            let resolvedPath: string;
+
+            if (importPath.startsWith('./')) {
+              // Same directory: ./file -> {importBase}/{currentDir}/file
+              const mappedDirIndex = sourceDir.indexOf(mappedDir);
+              if (mappedDirIndex !== -1) {
+                const sourceRelativeDir = sourceDir.substring(mappedDirIndex + mappedDir.length);
+                const sourceParts = sourceRelativeDir.split('/').filter((part) => part !== '');
+                const filePath = importPath.replace('./', '').replace(/\.(js|ts)$/, '');
+
+                if (sourceParts.length > 0) {
+                  resolvedPath = `${importBase}/${sourceParts.join('/')}/${filePath}`;
+                } else {
+                  resolvedPath = `${importBase}/${filePath}`;
+                }
+              } else {
+                const filePath = importPath.replace('./', '').replace(/\.(js|ts)$/, '');
+                resolvedPath = `${importBase}/${filePath}`;
+              }
+            } else {
+              // Parent directory: ../file -> resolve relative to the source structure
+              const mappedDirIndex = sourceDir.indexOf(mappedDir);
+              if (mappedDirIndex !== -1) {
+                // Get the directory part of the source file relative to the mapped directory
+                const sourceRelativeDir = sourceDir.substring(mappedDirIndex + mappedDir.length);
+                const sourceParts = sourceRelativeDir.split('/').filter((part) => part !== '');
+
+                // Parse the relative import path
+                const relativePath = importPath.replace(/\.(js|ts)$/, '');
+                const importParts = relativePath.split('/');
+
+                // Start from the current directory (sourceParts)
+                const resultParts = [...sourceParts];
+
+                // Process the import parts
+                for (const part of importParts) {
+                  if (part === '..') {
+                    resultParts.pop(); // Go up one directory
+                  } else if (part !== '.' && part !== '') {
+                    resultParts.push(part);
+                  }
+                }
+
+                // Build the final import path
+                resolvedPath = `${importBase}/${resultParts.join('/')}`;
+              } else {
+                // Fallback if we can't resolve the structure
+                resolvedPath = importPath;
+              }
+            }
+
+            absoluteImportPath = resolvedPath;
+            break;
+          }
+        }
+      }
+
+      // Fallback to modelImportSource for ./ imports only
+      if (!absoluteImportPath && importPath.startsWith('./') && options?.modelImportSource) {
+        const filePath = importPath.replace('./', '').replace(/\.(js|ts)$/, '');
+        absoluteImportPath = `${options.modelImportSource}/${filePath}`;
+      }
+
+      if (absoluteImportPath) {
+        const newImportSource = importSource.replace(importPath, absoluteImportPath);
+        result = result.replace(importSource, newImportSource);
+      } else {
+        // Dynamic calculation if we have both source and target paths
+        if (targetFilePath && sourceFilePath) {
+          const newRelativePath = calculateRelativeImportPath(sourceFilePath, targetFilePath, importPath);
+          const newImportSource = importSource.replace(importPath, newRelativePath);
+          result = result.replace(importSource, newImportSource);
+        } else {
+          // Final fallback to relative path adjustment (hardcoded assumptions)
+          if (importPath.startsWith('./')) {
+            const newPath = importPath.replace('./', '../../models/');
+            const newImportSource = importSource.replace(importPath, newPath);
+            result = result.replace(importSource, newImportSource);
+          } else if (importPath.startsWith('../')) {
+            // Transform ../file to ../../file (going up one more level)
+            const newPath = importPath.replace('../', '../../');
+            const newImportSource = importSource.replace(importPath, newPath);
+            result = result.replace(importSource, newImportSource);
+          }
+        }
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
  * Shared error logging utility for transforms
  */
 export function errorLog(options: TransformOptions | undefined, ...args: unknown[]): void {
   if (options?.verbose) {
+    // eslint-disable-next-line no-console
     console.error(...args);
   }
 }
@@ -1236,6 +1669,12 @@ export function getFieldKindFromDecorator(decoratorName: string): string {
       return 'belongsTo';
     case 'attr':
       return 'attribute';
+    case 'fragment':
+      return 'schema-object';
+    case 'fragmentArray':
+      return 'schema-array';
+    case 'array':
+      return 'array';
     default:
       return 'field'; // fallback
   }
@@ -1303,6 +1742,24 @@ export function withTransformWrapper<T>(
  */
 export function isModelFile(filePath: string, source: string, options?: TransformOptions): boolean {
   try {
+    // Special case: if this file itself is listed as an intermediate model or fragment, it's a model by definition
+    if (options?.intermediateModelPaths) {
+      for (const intermediatePath of options.intermediateModelPaths) {
+        const expectedFileName = intermediatePath.split('/').pop(); // e.g., "-auditboard-model"
+        if (expectedFileName && filePath.includes(expectedFileName)) {
+          return true;
+        }
+      }
+    }
+    if (options?.intermediateFragmentPaths) {
+      for (const intermediatePath of options.intermediateFragmentPaths) {
+        const expectedFileName = intermediatePath.split('/').pop(); // e.g., "base-fragment"
+        if (expectedFileName && filePath.includes(expectedFileName)) {
+          return true;
+        }
+      }
+    }
+
     const lang = getLanguageFromPath(filePath);
     const ast = parse(lang, source);
     const root = ast.root();
@@ -1331,7 +1788,7 @@ export function isModelFile(filePath: string, source: string, options?: Transfor
             kind: 'class_declaration',
             has: {
               kind: 'identifier',
-              text: exportedIdentifier,
+              regex: exportedIdentifier,
             },
           },
         });
@@ -1352,12 +1809,167 @@ export function isModelFile(filePath: string, source: string, options?: Transfor
       return false;
     }
 
-    const extendsText = heritageClause.text();
+    // Parse the heritage clause to find what this class actually extends
+    const identifiers = heritageClause.findAll({ rule: { kind: 'identifier' } });
+    const extendedClasses = identifiers.map((id) => id.text());
 
-    // Check for common model patterns
-    const modelPatterns = ['BaseModel', 'Model', '.extend(', 'BaseModelMixin', 'Permissable'];
+    debugLog(options, `Class extends: ${extendedClasses.join(', ')}`);
 
-    return modelPatterns.some((pattern) => extendsText.includes(pattern));
+    // Use emberDataImportSource to determine what classes are base models
+    const baseModelSources = [];
+    if (options?.emberDataImportSource) {
+      baseModelSources.push(options.emberDataImportSource);
+    }
+    // Add default EmberData sources
+    baseModelSources.push('@ember-data/model', '@warp-drive/model', '@auditboard/warp-drive/v1/model');
+    // Add Fragment base class support
+    baseModelSources.push('ember-data-model-fragments/fragment');
+    if (options?.intermediateModelPaths) {
+      baseModelSources.push(...options.intermediateModelPaths);
+    }
+    if (options?.intermediateFragmentPaths) {
+      baseModelSources.push(...options.intermediateFragmentPaths);
+    }
+
+    if (baseModelSources.length === 0) {
+      debugLog(options, `No base model sources provided, cannot determine if this is a model`);
+      return false;
+    }
+
+    // Extract imported class names from base model sources by looking at actual imports
+    const expectedBaseModels: string[] = [];
+    const importStatements = root.findAll({ rule: { kind: 'import_statement' } });
+
+    for (const importNode of importStatements) {
+      const importSource = importNode.field('source');
+      if (!importSource) continue;
+
+      const sourceText = importSource.text().replace(/['"]/g, '');
+
+      // Check for direct matches with base model sources
+      let isBaseModelImport = baseModelSources.includes(sourceText);
+
+      // If not a direct match, check if it's a relative import that resolves to an intermediate model or fragment
+      if (
+        !isBaseModelImport &&
+        sourceText.startsWith('.') &&
+        (options?.intermediateModelPaths || options?.intermediateFragmentPaths)
+      ) {
+        try {
+          // Resolve relative path to absolute path
+          const resolvedPath = resolve(dirname(filePath), sourceText);
+          debugLog(options, `Checking relative import ${sourceText} -> ${resolvedPath}`);
+
+          // Debug for client-core files
+
+          // Check if this resolved path corresponds to any intermediate model
+          if (options.intermediateModelPaths) {
+            for (const intermediatePath of options.intermediateModelPaths) {
+              // Use additionalModelSources to map from import path to file path
+              if (options.additionalModelSources) {
+                for (const { pattern, dir } of options.additionalModelSources) {
+                  if (intermediatePath.startsWith(pattern.replace('/*', ''))) {
+                    // Convert intermediate path to file path using the mapping
+                    const relativePart = intermediatePath.replace(pattern.replace('/*', ''), '');
+                    const expectedFilePath = dir.replace('/*', relativePart);
+
+                    // Check both .ts and .js extensions
+                    const possiblePaths = [`${expectedFilePath}.ts`, `${expectedFilePath}.js`];
+                    // The resolvedPath might already have an extension, or might not
+                    const pathMatches = possiblePaths.some((p) => {
+                      // Check if resolvedPath matches exactly
+                      if (resolvedPath === p) return true;
+                      // Check if resolvedPath without extension matches
+                      if (`${resolvedPath}.ts` === p || `${resolvedPath}.js` === p) return true;
+                      return false;
+                    });
+                    if (pathMatches) {
+                      debugLog(
+                        options,
+                        `Found match: ${sourceText} resolves to intermediate model ${intermediatePath}`
+                      );
+                      isBaseModelImport = true;
+                      break;
+                    }
+                  }
+                }
+              }
+            }
+          }
+
+          // Check if this resolved path corresponds to any intermediate fragment
+          if (!isBaseModelImport && options.intermediateFragmentPaths) {
+            for (const intermediatePath of options.intermediateFragmentPaths) {
+              // Use additionalModelSources to map from import path to file path
+              if (options.additionalModelSources) {
+                for (const { pattern, dir } of options.additionalModelSources) {
+                  if (intermediatePath.startsWith(pattern.replace('/*', ''))) {
+                    // Convert intermediate path to file path using the mapping
+                    const relativePart = intermediatePath.replace(pattern.replace('/*', ''), '');
+                    const expectedFilePath = dir.replace('/*', relativePart);
+
+                    // Check both .ts and .js extensions
+                    const possiblePaths = [`${expectedFilePath}.ts`, `${expectedFilePath}.js`];
+                    const pathMatches = possiblePaths.some((p) => {
+                      if (resolvedPath === p) return true;
+                      if (`${resolvedPath}.ts` === p || `${resolvedPath}.js` === p) return true;
+                      return false;
+                    });
+                    if (pathMatches) {
+                      debugLog(
+                        options,
+                        `Found match: ${sourceText} resolves to intermediate fragment ${intermediatePath}`
+                      );
+                      isBaseModelImport = true;
+                      break;
+                    }
+                  }
+                }
+              }
+            }
+          }
+        } catch (error: unknown) {
+          // Ignore path resolution errors
+          debugLog(options, `Failed to resolve relative path ${sourceText}: ${String(error)}`);
+        }
+      }
+
+      if (isBaseModelImport) {
+        // Get the import clause to find imported identifiers
+        const importClause = importNode.children().find((child) => child.kind() === 'import_clause');
+        if (!importClause) continue;
+
+        // Check for default import - it's the first identifier child in the import clause
+        const children = importClause.children();
+        const firstChild = children[0];
+        if (firstChild && firstChild.kind() === 'identifier') {
+          expectedBaseModels.push(firstChild.text());
+        }
+
+        // Check for named imports (e.g., import { BaseModel } from 'some/path')
+        const namedImports = importClause.findAll({ rule: { kind: 'named_imports' } });
+        for (const namedImportNode of namedImports) {
+          const importSpecifiers = namedImportNode.findAll({ rule: { kind: 'import_specifier' } });
+          for (const specifier of importSpecifiers) {
+            const nameNode = specifier.field('name');
+            if (nameNode) {
+              expectedBaseModels.push(nameNode.text());
+            }
+          }
+        }
+      }
+    }
+
+    debugLog(options, `Expected base models from imports: ${expectedBaseModels.join(', ')}`);
+    debugLog(options, `Extended classes found: ${extendedClasses.join(', ')}`);
+    debugLog(options, `Base model sources searched: ${baseModelSources.join(', ')}`);
+
+    // Check if any of the extended classes match our expected base models
+    const result = expectedBaseModels.some((baseModel) =>
+      extendedClasses.some((extended) => extended.includes(baseModel))
+    );
+    debugLog(options, `Model detection result: ${result}`);
+    return result;
   } catch (error) {
     debugLog(options, `Error checking if file is model: ${String(error)}`);
     return false;
@@ -1373,9 +1985,6 @@ export function resolveRelativeImport(importPath: string, fromFile: string, base
   }
 
   try {
-    const { dirname, resolve } = require('path');
-    const { existsSync } = require('fs');
-
     const fromDir = dirname(fromFile);
     const resolvedPath = resolve(fromDir, importPath);
 
@@ -1458,10 +2067,9 @@ export function findEmberImportLocalName(
       const resolvedPath = resolveRelativeImport(cleanSourceText, fromFile, baseDir);
       if (resolvedPath) {
         try {
-          const { readFileSync } = require('fs');
-          const source = readFileSync(resolvedPath, 'utf8');
+          const fileContent = readFileSync(resolvedPath, 'utf8');
 
-          if (isModelFile(resolvedPath, source, options)) {
+          if (isModelFile(resolvedPath, fileContent, options)) {
             debugLog(options, `Found relative import pointing to model file: ${cleanSourceText} -> ${resolvedPath}`);
 
             const importClause = importNode.children().find((child) => child.kind() === 'import_clause');
@@ -1542,7 +2150,7 @@ function parseObjectPropertiesFromNode(objectNode: SgNode): Record<string, unkno
 export function parseObjectLiteralFromNode(objectNode: SgNode): Record<string, unknown> {
   try {
     return parseObjectPropertiesFromNode(objectNode);
-  } catch (_error) {
+  } catch {
     // Return empty object if parsing fails
     return {};
   }
@@ -1555,7 +2163,7 @@ export function parseObjectLiteralFromNode(objectNode: SgNode): Record<string, u
 export function parseObjectLiteral(objectText: string): Record<string, unknown> {
   try {
     // Determine language based on the object text content
-    const ast = parse(Lang.Ts, objectText);
+    const ast = parse(Lang.TypeScript, objectText);
     const root = ast.root();
 
     // Find the object literal
@@ -1565,7 +2173,7 @@ export function parseObjectLiteral(objectText: string): Record<string, unknown> 
     }
 
     return parseObjectPropertiesFromNode(objectLiteral);
-  } catch (_error) {
+  } catch {
     // Return empty object if parsing fails
     return {};
   }
@@ -1611,7 +2219,7 @@ export function findDefaultExport(root: SgNode, options?: TransformOptions): SgN
 export function createExtensionArtifact(
   baseName: string,
   entityName: string,
-  extensionProperties: Array<{ name: string; originalKey: string; value: string }>,
+  extensionProperties: Array<{ name: string; originalKey: string; value: string; isObjectMethod?: boolean }>,
   extensionFormat: 'class' | 'object',
   fileExtension?: string
 ): TransformArtifact | null {
@@ -1804,10 +2412,12 @@ export function extractTypeFromDecoratorWithNodes(
 
         if (isAsync) {
           tsType = `AsyncHasMany<${modelName}>`;
-          imports.push(`type { AsyncHasMany } from '@ember-data/model'`);
+          const emberDataSource = options?.emberDataImportSource || DEFAULT_EMBER_DATA_SOURCE;
+          imports.push(`type { AsyncHasMany } from '${emberDataSource}'`);
         } else {
           tsType = `HasMany<${modelName}>`;
-          imports.push(`type { HasMany } from '@ember-data/model'`);
+          const emberDataSource = options?.emberDataImportSource || DEFAULT_EMBER_DATA_SOURCE;
+          imports.push(`type { HasMany } from '${emberDataSource}'`);
         }
 
         return {
@@ -1913,10 +2523,12 @@ export function extractTypeFromDecorator(
 
         if (isAsync) {
           tsType = `AsyncHasMany<${modelName}>`;
-          imports.push(`type { AsyncHasMany } from '@ember-data/model'`);
+          const emberDataSource = options?.emberDataImportSource || DEFAULT_EMBER_DATA_SOURCE;
+          imports.push(`type { AsyncHasMany } from '${emberDataSource}'`);
         } else {
           tsType = `HasMany<${modelName}>`;
-          imports.push(`type { HasMany } from '@ember-data/model'`);
+          const emberDataSource = options?.emberDataImportSource || DEFAULT_EMBER_DATA_SOURCE;
+          imports.push(`type { HasMany } from '${emberDataSource}'`);
         }
 
         // Add import for the related model type using resource import transformation
@@ -1946,7 +2558,8 @@ function extractImportsFromType(typeText: string, options?: TransformOptions): s
 
   // Look for specific types that need imports
   if (typeText.includes('AsyncHasMany') || typeText.includes('HasMany')) {
-    imports.push(`type { AsyncHasMany, HasMany } from '@ember-data/model'`);
+    const emberDataSource = options?.emberDataImportSource || DEFAULT_EMBER_DATA_SOURCE;
+    imports.push(`type { AsyncHasMany, HasMany } from '${emberDataSource}'`);
   }
 
   return imports;
@@ -2013,9 +2626,42 @@ export function getTypeScriptTypeForHasMany(
  */
 export interface SchemaField {
   name: string;
-  kind: 'attribute' | 'belongsTo' | 'hasMany';
+  kind: 'attribute' | 'belongsTo' | 'hasMany' | 'schema-object' | 'schema-array' | 'array';
   type?: string;
   options?: Record<string, unknown>;
+  comment?: string;
+}
+
+/**
+ * Extract JSDoc comments from an AST node
+ */
+export function extractJSDocComment(node: SgNode): string | undefined {
+  // Look for JSDoc comments (/** ... */) preceding the node
+  // We need to check the source text around the node's position
+  // Get the source text from the parent context
+  let currentNode = node;
+  while (currentNode.parent()) {
+    currentNode = currentNode.parent()!;
+  }
+  const source = currentNode.text();
+  const nodeText = node.text();
+  const nodeIndex = source.indexOf(nodeText);
+
+  if (nodeIndex === -1) return undefined;
+
+  // Look backwards from the node to find JSDoc comments
+  const textBeforeNode = source.substring(0, nodeIndex);
+
+  // Match JSDoc comments - /** ... */ with potential whitespace/newlines
+  const jsdocRegex = /\/\*\*[\s\S]*?\*\/\s*$/;
+  const match = textBeforeNode.match(jsdocRegex);
+
+  if (match) {
+    // Clean up the JSDoc comment - remove /** */ and normalize whitespace
+    return match[0].trim();
+  }
+
+  return undefined;
 }
 
 /**
@@ -2074,6 +2720,67 @@ export function convertToSchemaFieldWithNodes(
         kind: getFieldKindFromDecorator('hasMany') as 'hasMany',
         type,
         options: Object.keys(options).length > 0 ? options : undefined,
+      };
+    }
+    case 'fragment': {
+      const fragmentType = args.text[0] ? removeQuotes(args.text[0]) : name;
+      const optionsNode = args.nodes[1];
+      let userOptions: Record<string, unknown> = {};
+
+      if (optionsNode && optionsNode.kind() === 'object') {
+        userOptions = parseObjectLiteralFromNode(optionsNode);
+      }
+
+      // Use withFragmentDefaults format
+      return {
+        name,
+        kind: getFieldKindFromDecorator('fragment') as 'schema-object',
+        type: `fragment:${fragmentType}`,
+        options: {
+          objectExtensions: ['ember-object', 'fragment'],
+          ...userOptions,
+        },
+      };
+    }
+    case 'fragmentArray': {
+      const fragmentType = args.text[0] ? removeQuotes(args.text[0]) : name;
+      const optionsNode = args.nodes[1];
+      let userOptions: Record<string, unknown> = {};
+
+      if (optionsNode && optionsNode.kind() === 'object') {
+        userOptions = parseObjectLiteralFromNode(optionsNode);
+      }
+
+      // Use withFragmentArrayDefaults format
+      return {
+        name,
+        kind: getFieldKindFromDecorator('fragmentArray') as 'schema-array',
+        type: `fragment:${fragmentType}`,
+        options: {
+          arrayExtensions: ['ember-object', 'ember-array-like', 'fragment-array'],
+          defaultValue: true,
+          ...userOptions,
+        },
+      };
+    }
+    case 'array': {
+      const optionsNode = args.nodes[0];
+      let userOptions: Record<string, unknown> = {};
+
+      if (optionsNode && optionsNode.kind() === 'object') {
+        userOptions = parseObjectLiteralFromNode(optionsNode);
+      }
+
+      // Use withArrayDefaults format - type is array:singularized(name)
+      // Note: The singularization will be done at schema generation time
+      return {
+        name,
+        kind: getFieldKindFromDecorator('array') as 'array',
+        type: `array:${name}`, // Will be singularized during schema generation
+        options: {
+          arrayExtensions: ['ember-object', 'ember-array-like', 'fragment-array'],
+          ...userOptions,
+        },
       };
     }
     default:
@@ -2135,6 +2842,67 @@ export function convertToSchemaField(name: string, decoratorType: string, args: 
         options: Object.keys(options).length > 0 ? options : undefined,
       };
     }
+    case 'fragment': {
+      const fragmentType = args[0] ? removeQuotes(args[0]) : name;
+      const optionsText = args[1];
+      let userOptions: Record<string, unknown> = {};
+
+      if (optionsText) {
+        userOptions = parseObjectLiteral(optionsText);
+      }
+
+      // Use withFragmentDefaults format
+      return {
+        name,
+        kind: getFieldKindFromDecorator('fragment') as 'schema-object',
+        type: `fragment:${fragmentType}`,
+        options: {
+          objectExtensions: ['ember-object', 'fragment'],
+          ...userOptions,
+        },
+      };
+    }
+    case 'fragmentArray': {
+      const fragmentType = args[0] ? removeQuotes(args[0]) : name;
+      const optionsText = args[1];
+      let userOptions: Record<string, unknown> = {};
+
+      if (optionsText) {
+        userOptions = parseObjectLiteral(optionsText);
+      }
+
+      // Use withFragmentArrayDefaults format
+      return {
+        name,
+        kind: getFieldKindFromDecorator('fragmentArray') as 'schema-array',
+        type: `fragment:${fragmentType}`,
+        options: {
+          arrayExtensions: ['ember-object', 'ember-array-like', 'fragment-array'],
+          defaultValue: true,
+          ...userOptions,
+        },
+      };
+    }
+    case 'array': {
+      const optionsText = args[0];
+      let userOptions: Record<string, unknown> = {};
+
+      if (optionsText) {
+        userOptions = parseObjectLiteral(optionsText);
+      }
+
+      // Use withArrayDefaults format - type is array:singularized(name)
+      // Note: The singularization will be done at schema generation time
+      return {
+        name,
+        kind: getFieldKindFromDecorator('array') as 'array',
+        type: `array:${name}`, // Will be singularized during schema generation
+        options: {
+          arrayExtensions: ['ember-object', 'ember-array-like', 'fragment-array'],
+          ...userOptions,
+        },
+      };
+    }
     default:
       return null;
   }
@@ -2169,12 +2937,13 @@ export function buildLegacySchemaObject(
   type: string,
   schemaFields: SchemaField[],
   mixinTraits: string[],
-  mixinExtensions: string[]
+  mixinExtensions: string[],
+  isFragment?: boolean
 ): Record<string, unknown> {
   const legacySchema: Record<string, unknown> = {
-    type,
+    type: isFragment ? `fragment:${type}` : type,
     legacy: true,
-    identity: { kind: '@id', name: 'id' },
+    identity: isFragment ? null : { kind: '@id', name: 'id' },
     fields: schemaFields.map(schemaFieldToLegacyFormat),
   };
 
@@ -2182,7 +2951,13 @@ export function buildLegacySchemaObject(
     legacySchema.traits = mixinTraits;
   }
 
-  if (mixinExtensions.length > 0) {
+  // For Fragment classes, always add objectExtensions ['ember-object', 'fragment']
+  // Otherwise, only add mixinExtensions if they exist
+  if (isFragment) {
+    const fragmentExtensions = ['ember-object', 'fragment'];
+    legacySchema.objectExtensions =
+      mixinExtensions.length > 0 ? [...fragmentExtensions, ...mixinExtensions] : fragmentExtensions;
+  } else if (mixinExtensions.length > 0) {
     legacySchema.objectExtensions = mixinExtensions;
   }
 
@@ -2323,7 +3098,9 @@ export function generateInterfaceCode(
   // Add properties
   properties.forEach((prop) => {
     if (prop.comment) {
-      lines.push(`	/** ${prop.comment} */`);
+      // Wrap comment in JSDoc format if not already formatted
+      const formattedComment = prop.comment.startsWith('/**') ? prop.comment : `/** ${prop.comment} */`;
+      lines.push(`	${formattedComment}`);
     }
 
     const readonly = prop.readonly ? 'readonly ' : '';
@@ -2372,7 +3149,7 @@ export function createTypeArtifact(
     optional?: boolean;
     comment?: string;
   }>,
-  artifactContext?: 'schema' | 'extension' | 'trait',
+  artifactContext?: 'resource' | 'extension' | 'trait',
   extendsClause?: string,
   imports?: string[],
   fileExtension?: string
