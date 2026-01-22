@@ -690,14 +690,15 @@ export default class RelationshipModel extends Model {
       const schemaType = artifacts.find((a) => a.type === 'resource-type');
 
       expect(artifacts.length).toBeGreaterThan(0);
-      expect(schemaType).toBeDefined();
-      if (schemaType?.code) {
-        expect(schemaType.code).toMatchSnapshot('custom EmberData source for HasMany types');
-        expect(schemaType.code).toContain('@auditboard/warp-drive/v1/model');
-        expect(schemaType.code).toContain('HasMany');
-        expect(schemaType.code).toContain('AsyncHasMany');
-        expect(schemaType.code).not.toContain('@ember-data/model');
+      if (!schemaType) {
+        throw new Error('Test failed: schema type must exist');
       }
+
+      expect(schemaType.code).toMatchSnapshot('custom EmberData source for HasMany types');
+      expect(schemaType.code).toContain('@auditboard/warp-drive/v1/model');
+      expect(schemaType.code).toContain('HasMany');
+      expect(schemaType.code).toContain('AsyncHasMany');
+      expect(schemaType.code).not.toContain('@ember-data/model');
     });
   });
 
@@ -792,14 +793,21 @@ export default class TestModel extends Model.extend(WorkstreamableMixin) {
 
       expect(artifacts.length).toBeGreaterThan(0);
       expect(schemaType).toBeDefined();
-      if (schemaType?.code) {
-        // Should import WorkstreamableTrait but alias it as Workstreamable for backward compatibility
-        expect(schemaType.code).toContain('type { WorkstreamableTrait as Workstreamable }');
-        expect(schemaType.code).toContain('../traits/workstreamable.schema.types');
-
-        // Should use the aliased name in the interface
-        expect(schemaType.code).toContain('readonly workstreamable: Workstreamable | null');
+      if (!schemaType) {
+        throw new Error('Test failed: schema type must exist');
       }
+
+      expect(schemaType.code).toMatchInlineSnapshot(`
+        "import type { Type } from '@ember-data/core-types/symbols';
+        import type { WorkstreamableTrait as Workstreamable } from '../traits/workstreamable.schema.types';
+        import type { WorkstreamableTrait } from '../traits/workstreamable.schema.types';
+
+        export interface TestModel extends WorkstreamableTrait {
+        	readonly [Type]: 'test-model';
+        	readonly workstreamable: Workstreamable | null;
+        }
+        "
+      `);
     });
   });
 
@@ -1002,52 +1010,81 @@ export default class Translatable extends Model {
       expect(artifacts).toHaveLength(3);
 
       const extension = artifacts.find((a) => a.type === 'extension');
-      expect(extension).toBeDefined();
+      const testModel = artifacts.find((a) => a.type === 'resource-type');
+      const schema = artifacts.find((a) => a.type === 'schema');
 
-      if (extension?.code) {
-        // Should include the memberAction calls as properties
-        expect(extension.code).toContain('startProcess = memberAction');
-        expect(extension.code).toContain('finishProcess = memberAction');
+      expect(extension).toMatchInlineSnapshot(`
+        {
+          "code": "import Model, { attr } from '@ember-data/model';
+                import { memberAction } from 'test-app/decorators/api-actions';
 
-        // Should NOT include standalone "after" methods
-        // Count truly standalone after methods (not nested within memberAction calls)
-        const lines = extension.code.split('\n');
-        let standaloneAfterMethods = 0;
-        let insideMemberAction = false;
-        let memberActionBraceDepth = 0;
+        // The following is a workaround for the fact that we can't properly do
+        // declaration merging in .js files. If this is converted to a .ts file,
+        // we can remove this and just use the declaration merging.
+        /** @import { TestModel } from 'test-app/data/resources/test-model.schema.types' */
+        /** @type {{ new(): TestModel }} */
+        const Base = class {};
+        export class TestModelExtension extends Base {
+          startProcess = memberAction({
+                      path: 'start_process',
+                      type: 'POST',
+                      after(this: TestModel, response: TestModel): TestModel {
+                        console.log('Process started');
+                        return response;
+                      }
+                    })
 
-        for (const line of lines) {
-          // Track if we're inside a memberAction call
-          if (line.includes('memberAction(')) {
-            insideMemberAction = true;
-            memberActionBraceDepth = 0;
-          }
-
-          if (insideMemberAction) {
-            // Count braces to track memberAction scope
-            for (const char of line) {
-              if (char === '{') memberActionBraceDepth++;
-              if (char === '}') memberActionBraceDepth--;
-            }
-
-            // If braces are balanced, we've exited the memberAction
-            if (memberActionBraceDepth === 0 && line.includes('}')) {
-              insideMemberAction = false;
-            }
-          }
-
-          // Count after methods only if they're NOT inside a memberAction
-          if (/^\s*after\s*\(/g.test(line) && !insideMemberAction) {
-            standaloneAfterMethods++;
-          }
+          finishProcess = memberAction({
+                      path: 'finish_process',
+                      type: 'POST',
+                      after(response: any): void {
+                        this.store.pushPayload(response);
+                      }
+                    })
         }
 
-        expect(standaloneAfterMethods).toBe(0);
+        /** @typedef {typeof TestModelExtension} TestModelExtensionSignature */",
+          "name": "TestModelExtension",
+          "suggestedFileName": "test-model.js",
+          "type": "extension",
+        }
+      `);
+      expect(schema).toMatchInlineSnapshot(`
+        {
+          "code": "export const TestModelSchema = {
+          'type': 'test-model',
+          'legacy': true,
+          'identity': {
+            'kind': '@id',
+            'name': 'id'
+          },
+          'fields': [
+            {
+              'kind': 'attribute',
+              'name': 'name',
+              'type': 'string'
+            }
+          ]
+        };",
+          "name": "TestModelSchema",
+          "suggestedFileName": "test-model.schema.js",
+          "type": "schema",
+        }
+      `);
+      expect(testModel).toMatchInlineSnapshot(`
+        {
+          "code": "import type { Type } from '@ember-data/core-types/symbols';
 
-        // But the after methods should still exist within the memberAction calls
-        expect(extension.code).toContain('after(this: TestModel, response: TestModel)');
-        expect(extension.code).toContain('after(response: any)');
-      }
+        export interface TestModel {
+        	readonly [Type]: 'test-model';
+        	readonly name: string | null;
+        }
+        ",
+          "name": "TestModel",
+          "suggestedFileName": "test-model.schema.types.ts",
+          "type": "resource-type",
+        }
+      `);
     });
   });
 
@@ -1076,15 +1113,31 @@ export default class Amendment extends Model {
       const artifacts = toArtifacts('app/models/amendment.ts', input, DEFAULT_TEST_OPTIONS);
       const extension = artifacts.find((a) => a.type === 'extension');
 
-      expect(extension).toBeDefined();
+      expect(extension?.code).toMatchInlineSnapshot(`
+        "import Model, { attr } from '@ember-data/model';
 
-      // Assert that interfaces and types are exported
-      expect(extension?.code).toContain('export interface DisplayableChange');
-      expect(extension?.code).toContain('export type ChangeStatus');
+        export interface DisplayableChange {
+          field: string;
+          oldValue: string;
+          newValue: string;
+        }
 
-      // Assert that const is NOT exported
-      expect(extension?.code).not.toContain('export const INTERNAL_HELPER');
-      expect(extension?.code).toContain('const INTERNAL_HELPER');
+        export type ChangeStatus = 'pending' | 'applied';
+
+        const INTERNAL_HELPER = 'helper';
+
+        import type { Amendment } from 'test-app/data/resources/amendment.schema.types';
+
+        export interface AmendmentExtension extends Amendment {}
+
+        export class AmendmentExtension {
+          get changes(): DisplayableChange[] {
+              return [];
+            }
+        }
+
+        export type AmendmentExtensionSignature = typeof AmendmentExtension;"
+      `);
     });
 
     it('preserves JSDoc comments on exported types', () => {
@@ -1140,11 +1193,30 @@ export default class Task extends Model {
 
       const artifacts = toArtifacts('app/models/task.ts', input, DEFAULT_TEST_OPTIONS);
       const extension = artifacts.find((a) => a.type === 'extension');
+      expect(extension?.code).toMatchInlineSnapshot(`
+        "import Model, { attr } from '@ember-data/model';
 
-      expect(extension).toBeDefined();
-      expect(extension?.code).toContain('export interface Config');
-      expect(extension?.code).toContain('export type Status');
-      expect(extension?.code).toContain('export type Priority');
+        export interface Config {
+          enabled: boolean;
+          threshold: number;
+        }
+
+        export type Status = 'active' | 'inactive' | 'pending';
+
+        export type Priority = 'low' | 'medium' | 'high';
+
+        import type { Task } from 'test-app/data/resources/task.schema.types';
+
+        export interface TaskExtension extends Task {}
+
+        export class TaskExtension {
+          get config(): Config {
+              return { enabled: true, threshold: 100 };
+            }
+        }
+
+        export type TaskExtensionSignature = typeof TaskExtension;"
+      `);
     });
   });
 });
