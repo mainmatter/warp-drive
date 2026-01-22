@@ -1,9 +1,10 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { processIntermediateModelsToTraits } from '../../../../packages/codemods/src/schema-migration/model-to-schema.js';
+import { prepareFiles } from './test-helpers.ts';
 
 describe('intermediate model processing', () => {
   let tempDir: string;
@@ -13,17 +14,12 @@ describe('intermediate model processing', () => {
   });
 
   afterEach(() => {
-    if (existsSync(tempDir)) {
-      rmSync(tempDir, { recursive: true, force: true });
-    }
+    rmSync(tempDir, { recursive: true, force: true });
   });
 
   it('should process intermediate models with proper path resolution using additionalModelSources', () => {
-    // Create a test intermediate model
-    const coreDir = join(tempDir, 'app/core');
-    mkdirSync(coreDir, { recursive: true });
-
-    const baseModelContent = `
+    prepareFiles(tempDir, {
+      'app/core/base-model.js': `
 import Model from '@ember-data/model';
 import { attr } from '@ember-data/model';
 
@@ -31,11 +27,9 @@ export default class BaseModel extends Model {
   @attr('string') name;
   @attr('boolean') isActive;
 }
-`;
+`,
+    });
 
-    writeFileSync(join(coreDir, 'base-model.js'), baseModelContent);
-
-    // Test intermediate model processing with proper config mapping
     const result = processIntermediateModelsToTraits(
       ['test-app/core/base-model'],
       [
@@ -51,17 +45,13 @@ export default class BaseModel extends Model {
       }
     );
 
-    // Should successfully process the intermediate model
     expect(result.errors.length).toBe(0);
     expect(result.artifacts.length).toBeGreaterThan(0);
   });
 
   it('should use additionalModelSources for path resolution', () => {
-    // Create a test intermediate model in a non-standard location
-    const libDir = join(tempDir, 'libraries/core/src');
-    mkdirSync(libDir, { recursive: true });
-
-    const specialModelContent = `
+    prepareFiles(tempDir, {
+      'libraries/core/src/special-model.ts': `
 import Model from '@ember-data/model';
 import { attr } from '@ember-data/model';
 
@@ -69,11 +59,9 @@ export default class SpecialModel extends Model {
   @attr('string') specialName;
   @attr('number') priority;
 }
-`;
+`,
+    });
 
-    writeFileSync(join(libDir, 'special-model.ts'), specialModelContent);
-
-    // Test with additionalModelSources mapping
     const result = processIntermediateModelsToTraits(
       ['@mylib/core/special-model'],
       [
@@ -89,7 +77,6 @@ export default class SpecialModel extends Model {
       }
     );
 
-    // Should successfully resolve and process the model
     expect(result.errors.length).toBe(0);
     expect(result.artifacts.length).toBeGreaterThan(0);
   });
@@ -100,27 +87,22 @@ export default class SpecialModel extends Model {
       debug: false,
     });
 
-    // Should report error for missing model
     expect(result.errors.length).toBe(1);
     expect(result.errors[0]).toContain('Could not find or read intermediate model file for path: non-existent/model');
     expect(result.artifacts.length).toBe(0);
   });
 
   it('should include Model base properties in generated trait types', () => {
-    // Create a test intermediate model
-    const coreDir = join(tempDir, 'app/core');
-    mkdirSync(coreDir, { recursive: true });
-
-    const baseModelContent = `
+    prepareFiles(tempDir, {
+      'app/core/data-field-model.ts': `
 import Model from '@ember-data/model';
 import { attr } from '@ember-data/model';
 
 export default class DataFieldModel extends Model {
   @attr('string') fieldName;
 }
-`;
-
-    writeFileSync(join(coreDir, 'data-field-model.ts'), baseModelContent);
+`,
+    });
 
     const result = processIntermediateModelsToTraits(
       ['test-app/core/data-field-model'],
@@ -138,37 +120,55 @@ export default class DataFieldModel extends Model {
     );
 
     expect(result.errors.length).toBe(0);
-    expect(result.artifacts.length).toBeGreaterThan(0);
+    expect(result.artifacts).toMatchInlineSnapshot(`
+      [
+        {
+          "code": "export const DataFieldTrait = {
+        "fields": [
+          {
+            "kind": "attribute",
+            "name": "fieldName",
+            "type": "string"
+          }
+        ]
+      };",
+          "name": "DataFieldTrait",
+          "suggestedFileName": "data-field.schema.ts",
+          "type": "trait",
+        },
+        {
+          "code": "import type { BelongsToReference, HasManyReference, Errors } from '@warp-drive/legacy/model/-private';
 
-    // Find the trait-type artifact
-    const traitTypeArtifact = result.artifacts.find((a) => a.type === 'trait-type');
-    expect(traitTypeArtifact).toBeDefined();
-
-    // Verify Model base properties are included
-    const code = traitTypeArtifact?.code || '';
-
-    // State properties
-    expect(code).toContain('isNew');
-    expect(code).toContain('hasDirtyAttributes');
-    expect(code).toContain('isDeleted');
-    expect(code).toContain('isSaving');
-
-    // Lifecycle methods
-    expect(code).toContain('save');
-    expect(code).toContain('reload');
-    expect(code).toContain('deleteRecord');
-    expect(code).toContain('rollbackAttributes');
-
-    // Relationship accessor methods
-    expect(code).toContain('belongsTo');
-    expect(code).toContain('hasMany');
-
-    // Error property
-    expect(code).toContain('errors');
-
-    // Import for reference types
-    expect(code).toContain('BelongsToReference');
-    expect(code).toContain('HasManyReference');
-    expect(code).toContain('Errors');
+      export interface DataFieldTrait {
+      	id: string | null;
+      	readonly fieldName: string | null;
+      	readonly isNew: boolean;
+      	readonly hasDirtyAttributes: boolean;
+      	readonly isDeleted: boolean;
+      	readonly isSaving: boolean;
+      	readonly isValid: boolean;
+      	readonly isError: boolean;
+      	readonly isLoaded: boolean;
+      	readonly isEmpty: boolean;
+      	save: (options?: Record<string, unknown>) => Promise<this>;
+      	reload: (options?: Record<string, unknown>) => Promise<this>;
+      	deleteRecord: () => void;
+      	unloadRecord: () => void;
+      	destroyRecord: (options?: Record<string, unknown>) => Promise<void>;
+      	rollbackAttributes: () => void;
+      	belongsTo: (propertyName: string) => BelongsToReference;
+      	hasMany: (propertyName: string) => HasManyReference;
+      	serialize: (options?: Record<string, unknown>) => unknown;
+      	readonly errors: Errors;
+      	readonly adapterError: Error | null;
+      	readonly isReloading: boolean;
+      }
+      ",
+          "name": "DataFieldTrait",
+          "suggestedFileName": "data-field.schema.types.ts",
+          "type": "trait-type",
+        },
+      ]
+    `);
   });
 });
