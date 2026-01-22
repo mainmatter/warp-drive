@@ -10,16 +10,32 @@ describe('mixin-to-schema transform (artifacts)', () => {
 export default Mixin.create({});`;
 
       const artifacts = toArtifacts('app/mixins/empty.js', input, {});
-      expect(artifacts).toHaveLength(2); // Trait and trait-type artifacts
+      expect(artifacts).toHaveLength(2);
 
-      // Test artifact metadata
-      expect(
-        artifacts.map((a) => ({ type: a.type, suggestedFileName: a.suggestedFileName, name: a.name }))
-      ).toMatchSnapshot('empty mixin metadata');
-
-      // Test generated code
+      const trait = artifacts.find((a) => a.type === 'trait');
+      expect(trait).toMatchInlineSnapshot(`
+        {
+          "code": "export const emptyTrait = {
+          "name": "empty",
+          "mode": "legacy",
+          "fields": []
+        };",
+          "name": "emptyTrait",
+          "suggestedFileName": "empty.schema.js",
+          "type": "trait",
+        }
+      `);
       const traitType = artifacts.find((a) => a.type === 'trait-type');
-      expect(traitType?.code).toMatchSnapshot('empty trait type code');
+      expect(traitType).toMatchInlineSnapshot(`
+        {
+          "code": "export interface EmptyTrait {
+        }
+        ",
+          "name": "EmptyTrait",
+          "suggestedFileName": "empty.schema.types.ts",
+          "type": "trait-type",
+        }
+      `);
     });
 
     it('produces trait and extension artifacts for direct Mixin.create', () => {
@@ -35,20 +51,76 @@ export default Mixin.create({
 });`;
 
       const artifacts = toArtifacts('app/mixins/fileable.js', input, {});
-      expect(artifacts).toHaveLength(3); // Trait, trait-type, and extension artifacts
+      expect(artifacts).toHaveLength(3);
 
-      // Test artifact metadata
-      expect(
-        artifacts.map((a) => ({ type: a.type, suggestedFileName: a.suggestedFileName, name: a.name }))
-      ).toMatchSnapshot('artifact metadata');
-
-      // Test generated code separately for better readability
       const trait = artifacts.find((a) => a.type === 'trait');
       const traitType = artifacts.find((a) => a.type === 'trait-type');
       const extension = artifacts.find((a) => a.type === 'extension');
-      expect(trait?.code).toMatchSnapshot('trait code');
-      expect(traitType?.code).toMatchSnapshot('trait type code');
-      expect(extension?.code).toMatchSnapshot('extension code');
+      expect(trait).toMatchInlineSnapshot(`
+        {
+          "code": "export const fileableTrait = {
+          "name": "fileable",
+          "mode": "legacy",
+          "fields": [
+            {
+              "name": "files",
+              "kind": "hasMany",
+              "type": "file",
+              "options": {
+                "as": "fileable",
+                "async": false
+              }
+            },
+            {
+              "name": "name",
+              "kind": "attribute",
+              "type": "string"
+            },
+            {
+              "name": "isActive",
+              "kind": "attribute",
+              "type": "boolean",
+              "options": {
+                "defaultValue": false
+              }
+            }
+          ]
+        };",
+          "name": "fileableTrait",
+          "suggestedFileName": "fileable.schema.js",
+          "type": "trait",
+        }
+      `);
+      expect(traitType).toMatchInlineSnapshot(`
+        {
+          "code": "import type { HasMany } from '@ember-data/model';
+        import type { File } from 'undefined/file.schema.types';
+
+        export interface FileableTrait {
+        	files: HasMany<File>;
+        	name: string | null;
+        	isActive: boolean | null;
+        }
+        ",
+          "name": "FileableTrait",
+          "suggestedFileName": "fileable.schema.types.ts",
+          "type": "trait-type",
+        }
+      `);
+      expect(extension).toMatchInlineSnapshot(`
+        {
+          "code": "import { attr, hasMany } from '@ember-data/model';
+        import Mixin from '@ember/object/mixin';
+        import { computed } from '@ember/object';
+
+        export const fileableExtension = {
+          titleCaseName: computed('name', function () { return (this.name || '').toUpperCase(); })
+        };",
+          "name": "fileableExtension",
+          "suggestedFileName": "fileable.js",
+          "type": "extension",
+        }
+      `);
     });
 
     it('supports alias of Mixin import and still produces a trait artifact', () => {

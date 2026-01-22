@@ -164,27 +164,6 @@ exports[`mixin-to-schema transform (artifacts) > basic functionality > converts 
 ]
 `;
 
-exports[`mixin-to-schema transform (artifacts) > basic functionality > generates empty trait for empty mixin > empty mixin metadata 1`] = `
-[
-  {
-    "name": "emptyTrait",
-    "suggestedFileName": "empty.schema.js",
-    "type": "trait",
-  },
-  {
-    "name": "EmptyTrait",
-    "suggestedFileName": "empty.schema.types.ts",
-    "type": "trait-type",
-  },
-]
-`;
-
-exports[`mixin-to-schema transform (artifacts) > basic functionality > generates empty trait for empty mixin > empty trait type code 1`] = `
-"export interface EmptyTrait {
-}
-"
-`;
-
 exports[`mixin-to-schema transform (artifacts) > basic functionality > preserves newlines and tabs in extension artifact properties without escaping > code 1`] = `
 "export const plannableTrait = {
   "name": "plannable",
@@ -243,79 +222,6 @@ exports[`mixin-to-schema transform (artifacts) > basic functionality > produces 
     "type": "trait-type",
   },
 ]
-`;
-
-exports[`mixin-to-schema transform (artifacts) > basic functionality > produces trait and extension artifacts for direct Mixin.create > artifact metadata 1`] = `
-[
-  {
-    "name": "fileableTrait",
-    "suggestedFileName": "fileable.schema.js",
-    "type": "trait",
-  },
-  {
-    "name": "FileableTrait",
-    "suggestedFileName": "fileable.schema.types.ts",
-    "type": "trait-type",
-  },
-  {
-    "name": "fileableExtension",
-    "suggestedFileName": "fileable.js",
-    "type": "extension",
-  },
-]
-`;
-
-exports[`mixin-to-schema transform (artifacts) > basic functionality > produces trait and extension artifacts for direct Mixin.create > extension code 1`] = `
-"import { attr, hasMany } from '@ember-data/model';
-import Mixin from '@ember/object/mixin';
-import { computed } from '@ember/object';
-
-export const fileableExtension = {
-  titleCaseName: computed('name', function () { return (this.name || '').toUpperCase(); })
-};"
-`;
-
-exports[`mixin-to-schema transform (artifacts) > basic functionality > produces trait and extension artifacts for direct Mixin.create > trait code 1`] = `
-"export const fileableTrait = {
-  "name": "fileable",
-  "mode": "legacy",
-  "fields": [
-    {
-      "name": "files",
-      "kind": "hasMany",
-      "type": "file",
-      "options": {
-        "as": "fileable",
-        "async": false
-      }
-    },
-    {
-      "name": "name",
-      "kind": "attribute",
-      "type": "string"
-    },
-    {
-      "name": "isActive",
-      "kind": "attribute",
-      "type": "boolean",
-      "options": {
-        "defaultValue": false
-      }
-    }
-  ]
-};"
-`;
-
-exports[`mixin-to-schema transform (artifacts) > basic functionality > produces trait and extension artifacts for direct Mixin.create > trait type code 1`] = `
-"import type { HasMany } from '@ember-data/model';
-import type { File } from 'undefined/file.schema.types';
-
-export interface FileableTrait {
-	files: HasMany<File>;
-	name: string | null;
-	isActive: boolean | null;
-}
-"
 `;
 
 exports[`mixin-to-schema transform (artifacts) > basic functionality > supports alias of Mixin import and still produces a trait artifact > code 1`] = `
