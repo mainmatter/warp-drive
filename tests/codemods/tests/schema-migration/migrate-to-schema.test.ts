@@ -1,69 +1,13 @@
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'os';
-import { join, relative } from 'path';
+import { join } from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
   type MigrateOptions,
   runMigration,
 } from '../../../../packages/codemods/src/schema-migration/migrate-to-schema.js';
-
-function collectFilesSnapshot(baseDir: string, dir: string = baseDir): Record<string, string | null> {
-  const result: Record<string, string | null> = {};
-
-  try {
-    const entries = readdirSync(dir);
-    for (const entry of entries) {
-      const fullPath = join(dir, entry);
-      const relativePath = relative(baseDir, fullPath);
-      const stat = statSync(fullPath);
-
-      if (stat.isDirectory()) {
-        result[relativePath + '/'] = '__dir__';
-        Object.assign(result, collectFilesSnapshot(baseDir, fullPath));
-      } else {
-        result[relativePath] = '\n' + readFileSync(fullPath, 'utf-8');
-      }
-    }
-  } catch {
-    // Directory doesn't exist
-  }
-
-  return result;
-}
-
-function collectFileStructure(baseDir: string, dir: string = baseDir): string[] {
-  const result: string[] = [];
-
-  try {
-    const entries = readdirSync(dir).sort();
-    for (const entry of entries) {
-      const fullPath = join(dir, entry);
-      const relativePath = relative(baseDir, fullPath);
-      const stat = statSync(fullPath);
-
-      if (stat.isDirectory()) {
-        result.push(relativePath + '/');
-        result.push(...collectFileStructure(baseDir, fullPath));
-      } else {
-        result.push(relativePath);
-      }
-    }
-  } catch {
-    // Directory doesn't exist
-  }
-
-  return result;
-}
+import { prepareFiles, collectFileStructure, collectFilesSnapshot } from './test-helpers.ts';
 
 describe('migrate-to-schema batch operation', () => {
   let tempDir: string;
@@ -96,21 +40,6 @@ describe('migrate-to-schema batch operation', () => {
   afterEach(() => {
     rmSync(tempDir, { recursive: true, force: true });
   });
-
-  function prepareFiles(baseDir: string, files: Record<string, string>) {
-    for (const [key, content] of Object.entries(files)) {
-      const withoutFile = key.split('/');
-      withoutFile.pop();
-      const path = join(...withoutFile);
-      const fullPath = join(baseDir, path);
-
-      if (!existsSync(fullPath)) {
-        mkdirSync(fullPath, { recursive: true });
-      }
-
-      writeFileSync(join(baseDir, key), content);
-    }
-  }
 
   it('generates schema and type artifacts for models', async () => {
     prepareFiles(tempDir, {
