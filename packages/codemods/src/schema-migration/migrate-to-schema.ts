@@ -259,6 +259,12 @@ export class Codemod {
     this.finalOptions = finalOptions;
   }
 
+  mixinsImportedByModels: Set<string> = new Set();
+
+  findMixinsUsedByModels() {
+    this.mixinsImportedByModels = analyzeModelMixinUsage(this, this.finalOptions);
+  }
+
   async findModels() {
     // TODO: || './app/models'
     if (!this.finalOptions.modelSourceDir) {
@@ -428,6 +434,7 @@ export async function runMigration(options: MigrateOptions): Promise<void> {
 
   if (!options.mixinsOnly) {
     await codemod.findModels();
+    codemod.findMixinsUsedByModels();
   }
 
   if (!options.modelsOnly) {
@@ -447,21 +454,6 @@ export async function runMigration(options: MigrateOptions): Promise<void> {
   logger.warn(`📋 Skipped ${codemod.input.skipped.length} files total`);
   logger.warn(`📋 Errors found while reading files: ${codemod.input.errors.length}`);
 
-  // Analyze which mixins are actually used by models (do this early, before processing)
-  let modelConnectedMixins = new Set<string>();
-  if (!options.mixinsOnly) {
-    try {
-      logger.info(`🔍 Starting mixin usage analysis...`);
-      modelConnectedMixins = analyzeModelMixinUsage(codemod, finalOptions);
-      logger.info(`✅ Analysis complete. Found ${modelConnectedMixins.size} connected mixins.`);
-    } catch (error) {
-      logger.error(`❌ Error during mixin usage analysis: ${String(error)}`);
-      logger.warn(`⚠️  Falling back to processing all mixins`);
-    }
-  }
-
-  // Add connected mixins and file lists to options so they can be used for import path resolution
-  finalOptions.modelConnectedMixins = modelConnectedMixins;
   finalOptions.allModelFiles = Object.keys(codemod.input.models);
   finalOptions.allMixinFiles = Object.keys(codemod.input.mixins);
 
@@ -574,7 +566,7 @@ export async function runMigration(options: MigrateOptions): Promise<void> {
   // Pass the model-connected mixins and models with extensions to the transform options
   const enhancedOptions = {
     ...finalOptions,
-    modelConnectedMixins,
+    modelConnectedMixins: codemod.mixinsImportedByModels,
     modelsWithExtensions,
   };
 
