@@ -3,7 +3,7 @@ import { existsSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { extractBaseName } from './common';
 import { Logger } from '../utils/logger';
-import { Codemod, FinalOptions } from '../migrate-to-schema';
+import { Codemod, FinalOptions } from '../codemod';
 import { getLanguageFromPath } from '../utils/ast-utils';
 
 /**
