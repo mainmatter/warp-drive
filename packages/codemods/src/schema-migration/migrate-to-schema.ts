@@ -36,27 +36,6 @@ export default function (): never {
 }
 
 /**
- * Validate that a file can be parsed as valid JavaScript/TypeScript
- */
-function validateFileAST(
-  filePath: string,
-  source: string,
-  options?: TransformOptions
-): { valid: boolean; error?: string } {
-  try {
-    const lang = getLanguageFromPath(filePath);
-    const ast = parse(lang, source);
-    ast.root(); // Try to access the root to ensure parsing succeeded
-    return { valid: true };
-  } catch (error) {
-    return {
-      valid: false,
-      error: error instanceof Error ? error.message : String(error),
-    };
-  }
-}
-
-/**
  * Check if a file is a mixin file using AST analysis
  */
 function astIsMixinFile(filePath: string, source: string, options?: TransformOptions): boolean {
@@ -782,6 +761,8 @@ function resolveMixinPath(importPath: string, currentFilePath: string, options: 
 type Filename = string;
 type InputFile = { path: string; code: string; isMixin: boolean; isModel: boolean };
 
+type FinalOptions = TransformOptions & MigrateOptions & { kind: 'finalized' };
+
 class Input {
   models: Map<Filename, InputFile> = new Map();
   mixins: Map<Filename, InputFile> = new Map();
@@ -791,28 +772,26 @@ class Input {
 
 class Codemod {
   logger: Logger;
-  transformOptions: TransformOptions;
-  migrateOptions: MigrateOptions;
+  finalOptions: FinalOptions;
 
   input: Input = new Input();
 
-  constructor(logger: Logger, transformOptions: TransformOptions, migrateOptions: MigrateOptions) {
+  constructor(logger: Logger, finalOptions: FinalOptions) {
     this.logger = logger;
-    this.transformOptions = transformOptions;
-    this.migrateOptions = migrateOptions;
+    this.finalOptions = finalOptions;
   }
 
   async findModels() {
     // TODO: || './app/models'
-    if (!this.transformOptions.modelSourceDir) {
+    if (!this.finalOptions.modelSourceDir) {
       throw new Error('`options.modelSourceDir` must be specified before looking for files');
     }
 
-    const filePattern = join(resolve(this.transformOptions.modelSourceDir), '**/*.{js,ts}');
+    const filePattern = join(resolve(this.finalOptions.modelSourceDir), '**/*.{js,ts}');
     let fileSources = [filePattern];
 
-    if (this.transformOptions.additionalModelSources) {
-      for (const source of this.transformOptions.additionalModelSources) {
+    if (this.finalOptions.additionalModelSources) {
+      for (const source of this.finalOptions.additionalModelSources) {
         fileSources.push(expandGlobPattern(source.dir));
       }
     }
@@ -822,15 +801,11 @@ class Codemod {
       (file) => {
         return (
           existsSync(file) &&
-          (!this.migrateOptions.skipProcessed || !isAlreadyProcessed(file, this.transformOptions)) &&
-          !isIntermediateModel(
-            file,
-            this.transformOptions.intermediateModelPaths,
-            this.transformOptions.additionalModelSources
-          )
+          (!this.finalOptions.skipProcessed || !isAlreadyProcessed(file, this.finalOptions)) &&
+          !isIntermediateModel(file, this.finalOptions.intermediateModelPaths, this.finalOptions.additionalModelSources)
         );
       },
-      this.transformOptions,
+      this.finalOptions,
       this.logger
     );
 
@@ -842,15 +817,15 @@ class Codemod {
   }
 
   async findMixins() {
-    if (!this.transformOptions.mixinSourceDir) {
+    if (!this.finalOptions.mixinSourceDir) {
       throw new Error('`options.mixinSourceDir` must be specified before looking for files');
     }
 
-    const filePattern = join(resolve(this.transformOptions.mixinSourceDir), '**/*.{js,ts}');
+    const filePattern = join(resolve(this.finalOptions.mixinSourceDir), '**/*.{js,ts}');
     let fileSources = [filePattern];
 
-    if (this.transformOptions.additionalMixinSources) {
-      for (const source of this.transformOptions.additionalMixinSources) {
+    if (this.finalOptions.additionalMixinSources) {
+      for (const source of this.finalOptions.additionalMixinSources) {
         fileSources.push(expandGlobPattern(source.dir));
       }
     }
@@ -858,11 +833,9 @@ class Codemod {
     const models = await findFiles(
       fileSources,
       (file) => {
-        return (
-          existsSync(file) && (!this.migrateOptions.skipProcessed || !isAlreadyProcessed(file, this.transformOptions))
-        );
+        return existsSync(file) && (!this.finalOptions.skipProcessed || !isAlreadyProcessed(file, this.finalOptions));
       },
-      this.transformOptions,
+      this.finalOptions,
       this.logger
     );
 
@@ -891,7 +864,7 @@ function expandGlobPattern(dir: string): string {
 async function findFiles(
   sources: string[],
   predicate: (file: string) => boolean,
-  transformOptions: TransformOptions,
+  finalOptions: FinalOptions,
   logger: Logger
 ): Promise<{ output: InputFile[]; skipped: string[]; errors: Error[] }> {
   let output: InputFile[] = [];
@@ -909,11 +882,11 @@ async function findFiles(
           let isModel = false;
           let isMixin = false;
 
-          if (astIsModelFile(file, content, transformOptions)) {
+          if (astIsModelFile(file, content, finalOptions)) {
             isModel = true;
           }
 
-          if (!isModel && astIsMixinFile(file, content, transformOptions)) {
+          if (!isModel && astIsMixinFile(file, content, finalOptions)) {
             isMixin = true;
           }
 
@@ -923,7 +896,7 @@ async function findFiles(
         }
       }
 
-      if (transformOptions.verbose) {
+      if (finalOptions.verbose) {
         logger.info(
           `📋 Found ${output.length} files at '${source}' (Total: '${output.length}', Skipped: '${skipped.length}' Sources: '[${sources.join(',')}]')`
         );
@@ -941,7 +914,8 @@ async function findFiles(
  * Run the migration for multiple files
  */
 export async function runMigration(options: MigrateOptions): Promise<void> {
-  const finalOptions: TransformOptions = {
+  const finalOptions: FinalOptions = {
+    kind: 'finalized',
     appImportPrefix: 'my-app',
     inputDir: options.inputDir || './app',
     outputDir: options.outputDir || './app/schemas',
@@ -957,7 +931,7 @@ export async function runMigration(options: MigrateOptions): Promise<void> {
   logger.info(`📁 Input directory: ${resolve(finalOptions.inputDir || './app')}`);
   logger.info(`📁 Output directory: ${resolve(finalOptions.outputDir || './app/schemas')}`);
 
-  const codemod = new Codemod(logger, finalOptions, options);
+  const codemod = new Codemod(logger, finalOptions);
 
   // Ensure output directories exist (specific directories are created as needed)
   if (!finalOptions.dryRun) {
@@ -993,7 +967,7 @@ export async function runMigration(options: MigrateOptions): Promise<void> {
   logger.info(`📋 Found ${codemod.input.models.size} model and ${codemod.input.mixins.size} mixin files`);
 
   logger.warn(`📋 Skipped ${codemod.input.skipped.length} files total`);
-  logger.warn(`📋 Errors found: ${codemod.input.errors.length}`);
+  logger.warn(`📋 Errors found while reading files: ${codemod.input.errors.length}`);
 
   // Analyze which mixins are actually used by models (do this early, before processing)
   let modelConnectedMixins = new Set<string>();
