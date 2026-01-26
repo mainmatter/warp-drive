@@ -265,6 +265,20 @@ export class Codemod {
     this.mixinsImportedByModels = analyzeModelMixinUsage(this, this.finalOptions);
   }
 
+  createDestinationDirectories() {
+    // Only create specific directories if they are configured
+    // The generic outputDir is only used for fallback artifacts and shouldn't be pre-created
+    if (this.finalOptions.traitsDir) {
+      mkdirSync(resolve(this.finalOptions.traitsDir), { recursive: true });
+    }
+    if (this.finalOptions.extensionsDir) {
+      mkdirSync(resolve(this.finalOptions.extensionsDir), { recursive: true });
+    }
+    if (this.finalOptions.resourcesDir) {
+      mkdirSync(resolve(this.finalOptions.resourcesDir), { recursive: true });
+    }
+  }
+
   async findModels() {
     // TODO: || './app/models'
     if (!this.finalOptions.modelSourceDir) {
@@ -285,7 +299,7 @@ export class Codemod {
       (file) => {
         return (
           existsSync(file) &&
-          (!this.finalOptions.skipProcessed || !isAlreadyProcessed(file, this.finalOptions)) &&
+          (!this.finalOptions.skipProcessed || !isAlreadyProcessed(file)) &&
           !isIntermediateModel(file, this.finalOptions.intermediateModelPaths, this.finalOptions.additionalModelSources)
         );
       },
@@ -317,7 +331,7 @@ export class Codemod {
     const models = await findFiles(
       fileSources,
       (file) => {
-        return existsSync(file) && (!this.finalOptions.skipProcessed || !isAlreadyProcessed(file, this.finalOptions));
+        return existsSync(file) && (!this.finalOptions.skipProcessed || !isAlreadyProcessed(file));
       },
       this.finalOptions,
       this.logger
@@ -419,17 +433,7 @@ export async function runMigration(options: MigrateOptions): Promise<void> {
 
   // Ensure output directories exist (specific directories are created as needed)
   if (!finalOptions.dryRun) {
-    // Only create specific directories if they are configured
-    // The generic outputDir is only used for fallback artifacts and shouldn't be pre-created
-    if (finalOptions.traitsDir) {
-      mkdirSync(resolve(finalOptions.traitsDir), { recursive: true });
-    }
-    if (finalOptions.extensionsDir) {
-      mkdirSync(resolve(finalOptions.extensionsDir), { recursive: true });
-    }
-    if (finalOptions.resourcesDir) {
-      mkdirSync(resolve(finalOptions.resourcesDir), { recursive: true });
-    }
+    codemod.createDestinationDirectories();
   }
 
   if (!options.mixinsOnly) {
@@ -675,7 +679,7 @@ export async function runMigration(options: MigrateOptions): Promise<void> {
 /**
  * Check if a file has already been processed
  */
-function isAlreadyProcessed(filePath: string, options: TransformOptions): boolean {
+function isAlreadyProcessed(filePath: string): boolean {
   // Simple heuristic: check if a corresponding schema file exists
   const outputPath = filePath
     .replace('/models/', '/schemas/')
