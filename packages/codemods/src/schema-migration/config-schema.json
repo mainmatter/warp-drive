@@ -46,7 +46,11 @@
       "items": {
         "type": "string"
       },
-      "description": "List of intermediate model class import paths that should be converted to traits (e.g., ['soxhub-client/core/base-model', 'soxhub-client/core/data-field-model'])"
+      "description": "List of intermediate model class import paths that should be converted to traits (e.g., ['my-app/core/base-model', 'my-app/core/data-field-model'])"
+    },
+    "appImportPrefix": {
+      "type": "string",
+      "description": "Base import prefix for the application (e.g., 'my-app'). Used for detecting local imports that refer to models, mixins, etc."
     },
     "modelImportSource": {
       "type": "string",
@@ -155,6 +159,22 @@
     "prettierConfigPath": {
       "type": "string",
       "description": "Path to Prettier configuration file (optional, uses project defaults)"
+    },
+    "storeType": {
+      "type": "object",
+      "description": "Configuration for the Store type to include in generated intermediate model traits. If not specified, store property is not added to traits.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Name of the Store type (e.g., 'Store')",
+          "default": "Store"
+        },
+        "import": {
+          "type": "string",
+          "description": "Import path for the Store type (e.g., 'my-app/services/store')"
+        }
+      },
+      "required": ["import"]
     }
   },
   "additionalProperties": false
