@@ -1346,7 +1346,7 @@ function convertImportToAbsolute(
 /**
  * Check if a file is a mixin file by analyzing its content
  */
-function isMixinFile(filePath: string, options?: TransformOptions): boolean {
+export function isMixinFile(filePath: string, options?: TransformOptions): boolean {
   try {
     const source = readFileSync(filePath, 'utf8');
 

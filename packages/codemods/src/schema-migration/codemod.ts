@@ -1,18 +1,10 @@
-import { parse } from '@ast-grep/napi';
 import { existsSync, mkdirSync } from 'fs';
 import { readFile } from 'fs/promises';
 import { glob } from 'glob';
 import { basename, extname, join, resolve } from 'path';
 
 import type { TransformOptions } from './utils/ast-utils.js';
-import {
-  debugLog,
-  DEFAULT_MIXIN_SOURCE,
-  findEmberImportLocalName,
-  getLanguageFromPath,
-  isModelFile as astIsModelFile,
-  extractBaseName,
-} from './utils/ast-utils.js';
+import { extractBaseName } from './utils/ast-utils.js';
 import { Logger } from './utils/logger.js';
 import { analyzeModelMixinUsage } from './processors/mixin.js';
 import { willModelHaveExtension } from './model-to-schema.js';
@@ -27,29 +19,9 @@ export interface MigrateOptions extends Partial<TransformOptions> {
 }
 
 type Filename = string;
-type InputFile = { path: string; code: string; isMixin: boolean; isModel: boolean };
+type InputFile = { path: string; code: string };
 
 export type FinalOptions = TransformOptions & MigrateOptions & { kind: 'finalized' };
-
-/**
- * Check if a file is a mixin file using AST analysis
- */
-function astIsMixinFile(filePath: string, source: string, options?: TransformOptions): boolean {
-  try {
-    const lang = getLanguageFromPath(filePath);
-    const ast = parse(lang, source);
-    const root = ast.root();
-
-    // Look for Mixin imports from @ember/object/mixin
-    const mixinSources = [DEFAULT_MIXIN_SOURCE];
-    const mixinImportLocal = findEmberImportLocalName(root, mixinSources, options, filePath, process.cwd());
-
-    return !!mixinImportLocal;
-  } catch (error) {
-    debugLog(options, `Error checking if file is mixin: ${String(error)}`);
-    return false;
-  }
-}
 
 /**
  * Check if a file path matches any intermediate model path
@@ -120,18 +92,7 @@ async function findFiles(
         if (predicate(file)) {
           const content = await readFile(file, 'utf-8');
 
-          let isModel = false;
-          let isMixin = false;
-
-          if (astIsModelFile(file, content, finalOptions)) {
-            isModel = true;
-          }
-
-          if (!isModel && astIsMixinFile(file, content, finalOptions)) {
-            isMixin = true;
-          }
-
-          output.push({ path: file, code: content, isMixin, isModel });
+          output.push({ path: file, code: content });
         } else {
           skipped.push(file);
         }

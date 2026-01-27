@@ -1,10 +1,9 @@
 import { parse } from '@ast-grep/napi';
 import { existsSync } from 'fs';
 import { dirname, resolve } from 'path';
-import { extractBaseName } from './common';
 import { Logger } from '../utils/logger';
 import { Codemod, FinalOptions } from '../codemod';
-import { getLanguageFromPath } from '../utils/ast-utils';
+import { extractBaseName, getLanguageFromPath } from '../utils/ast-utils';
 
 /**
  * Analyze which mixins are actually used by models (directly or transitively)
