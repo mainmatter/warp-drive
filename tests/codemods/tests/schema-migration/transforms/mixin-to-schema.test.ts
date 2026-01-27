@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { toArtifacts } from '../../../../../packages/codemods/src/schema-migration/mixin-to-schema.js';
+import { toArtifacts } from '../../../../../packages/codemods/src/schema-migration/processors/mixin.ts';
 import { mkdtempSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';

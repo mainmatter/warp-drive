@@ -1,12 +1,12 @@
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { basename, dirname, join, resolve } from 'path';
 
-import { Codemod, FinalOptions, MigrateOptions } from './codemod.js';
-import { processIntermediateModelsToTraits, toArtifacts as modelToArtifacts } from './model-to-schema.js';
-import { toArtifacts as mixinToArtifacts } from './mixin-to-schema.js';
-import type { TransformOptions } from './utils/ast-utils.js';
-import { debugLog } from './utils/ast-utils.js';
-import { Logger } from './utils/logger.js';
+import { Codemod, FinalOptions, MigrateOptions } from '../codemod.js';
+import { processIntermediateModelsToTraits, toArtifacts as modelToArtifacts } from '../processors/model.js';
+import { toArtifacts as mixinToArtifacts } from '../processors/mixin.js';
+import type { TransformOptions } from '../utils/ast-utils.js';
+import { debugLog } from '../utils/ast-utils.js';
+import { Logger } from '../utils/logger.js';
 
 /**
  * JSCodeshift transform function that throws an error

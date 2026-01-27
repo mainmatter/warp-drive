@@ -6,7 +6,7 @@ import jscodeshift from 'jscodeshift';
 import path from 'path';
 
 import type { Options as LegacyCompatBuildersOptions } from '../src/legacy-compat-builders/options.js';
-import type { MigrateOptions } from '../src/schema-migration/migrate-to-schema.js';
+import type { MigrateOptions } from '../src/schema-migration/codemod.js';
 import { type ConfigOptions, loadConfig, mergeOptions } from '../src/schema-migration/utils/config.js';
 import type { SharedCodemodOptions } from '../src/utils/options.js';
 import { logger } from '../utils/logger.js';
@@ -100,7 +100,7 @@ function createApplyAction(transformName: string) {
 
     // Special handling for migrate-to-schema command
     if (transformName === 'migrate-to-schema') {
-      const { runMigration } = await import('../src/schema-migration/migrate-to-schema.js');
+      const { runMigration } = await import('../src/schema-migration/tasks/migrate.js');
       const inputDir = (typeof patterns === 'string' ? patterns : patterns[0]) || './app';
 
       // Load and merge config file if provided

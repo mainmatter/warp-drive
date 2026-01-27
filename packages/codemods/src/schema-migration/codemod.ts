@@ -6,8 +6,8 @@ import { basename, extname, join, resolve } from 'path';
 import type { TransformOptions } from './utils/ast-utils.js';
 import { extractBaseName } from './utils/ast-utils.js';
 import { Logger } from './utils/logger.js';
-import { analyzeModelMixinUsage } from './processors/mixin.js';
-import { willModelHaveExtension } from './model-to-schema.js';
+import { analyzeModelMixinUsage } from './processors/mixin-analyzer.js';
+import { willModelHaveExtension } from './processors/model.js';
 
 export interface MigrateOptions extends Partial<TransformOptions> {
   mixinsOnly?: boolean;

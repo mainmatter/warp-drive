@@ -2,7 +2,7 @@ import { parse, type SgNode } from '@ast-grep/napi';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { dirname, join, resolve } from 'path';
 
-import type { SchemaField, TransformArtifact, TransformOptions } from './utils/ast-utils.js';
+import type { SchemaField, TransformArtifact, TransformOptions } from '../utils/ast-utils.js';
 import {
   buildLegacySchemaObject,
   convertToSchemaField,
@@ -35,7 +35,7 @@ import {
   toPascalCase,
   transformModelToResourceImport,
   withTransformWrapper,
-} from './utils/ast-utils.js';
+} from '../utils/ast-utils.js';
 
 /**
  * Get the base EmberData Model properties and methods that should be available on all model types.
