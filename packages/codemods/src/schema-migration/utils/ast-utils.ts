@@ -2328,107 +2328,120 @@ export function extractTypeFromDeclaration(propertyNode: SgNode, options?: Trans
 }
 
 /**
+ * Internal interface for parsed decorator options
+ * Used to normalize options parsing from AST nodes
+ */
+interface ParsedDecoratorOptions {
+  hasDefaultValue: boolean;
+  allowNull: boolean;
+  async: boolean;
+}
+
+/**
+ * Parse decorator options from an AST node
+ * Returns normalized options object for use in type extraction
+ */
+function parseDecoratorOptions(optionsNode: SgNode | undefined): ParsedDecoratorOptions {
+  const defaults: ParsedDecoratorOptions = {
+    hasDefaultValue: false,
+    allowNull: true,
+    async: false,
+  };
+
+  if (!optionsNode || optionsNode.kind() !== 'object') {
+    return defaults;
+  }
+
+  try {
+    const parsedOptions = parseObjectLiteralFromNode(optionsNode);
+    return {
+      hasDefaultValue: 'defaultValue' in parsedOptions,
+      allowNull: parsedOptions.allowNull !== 'false',
+      async: parsedOptions.async === 'true' || parsedOptions.async === true,
+    };
+  } catch {
+    return defaults;
+  }
+}
+
+/**
+ * Core implementation for extracting TypeScript types from EmberData decorators
+ * This is the shared logic used by the type extraction function
+ */
+function extractTypeFromDecoratorCore(
+  decoratorType: string,
+  firstArg: string | undefined,
+  parsedOptions: ParsedDecoratorOptions,
+  options?: TransformOptions
+): ExtractedType | null {
+  switch (decoratorType) {
+    case 'attr': {
+      const attrType = firstArg ? removeQuotes(firstArg) : 'unknown';
+      const { tsType, imports = [] } = getTypeScriptTypeForAttribute(
+        attrType,
+        parsedOptions.hasDefaultValue,
+        parsedOptions.allowNull,
+        options
+      );
+
+      return {
+        type: tsType,
+        imports: imports.length > 0 ? imports : undefined,
+      };
+    }
+
+    case 'belongsTo': {
+      const relatedType = firstArg ? removeQuotes(firstArg) : 'unknown';
+      const modelName = toPascalCase(relatedType);
+
+      const tsType = parsedOptions.async ? `Promise<${modelName} | null>` : `${modelName} | null`;
+
+      return {
+        type: tsType,
+      };
+    }
+
+    case 'hasMany': {
+      const relatedType = firstArg ? removeQuotes(firstArg) : 'unknown';
+      const modelName = toPascalCase(relatedType);
+      const imports: string[] = [];
+
+      const emberDataSource = options?.emberDataImportSource || DEFAULT_EMBER_DATA_SOURCE;
+      let tsType: string;
+
+      if (parsedOptions.async) {
+        tsType = `AsyncHasMany<${modelName}>`;
+        imports.push(`type { AsyncHasMany } from '${emberDataSource}'`);
+      } else {
+        tsType = `HasMany<${modelName}>`;
+        imports.push(`type { HasMany } from '${emberDataSource}'`);
+      }
+
+      return {
+        type: tsType,
+        imports: imports.length > 0 ? imports : undefined,
+      };
+    }
+
+    default:
+      return null;
+  }
+}
+
+/**
  * Extract TypeScript type from an EmberData decorator based on the decorator type and AST nodes
  */
-export function extractTypeFromDecoratorWithNodes(
+export function extractTypeFromDecorator(
   decoratorType: string,
   args: { text: string[]; nodes: SgNode[] },
   options?: TransformOptions
 ): ExtractedType | null {
   try {
-    switch (decoratorType) {
-      case 'attr': {
-        const attrType = args.text[0] ? removeQuotes(args.text[0]) : 'unknown';
-        const optionsNode = args.nodes[1];
-        let hasDefaultValue = false;
-        let allowNull = true;
+    const firstArg = args.text[0];
+    const optionsNode = args.nodes[1];
+    const parsedOptions = parseDecoratorOptions(optionsNode);
 
-        if (optionsNode && optionsNode.kind() === 'object') {
-          try {
-            const parsedOptions = parseObjectLiteralFromNode(optionsNode);
-            hasDefaultValue = 'defaultValue' in parsedOptions;
-            allowNull = parsedOptions.allowNull !== 'false';
-          } catch {
-            // Ignore parsing errors
-          }
-        }
-
-        // Map EmberData attribute types to TypeScript types
-        const { tsType, imports = [] } = getTypeScriptTypeForAttribute(attrType, hasDefaultValue, allowNull, options);
-
-        return {
-          type: tsType,
-          imports: imports.length > 0 ? imports : undefined,
-        };
-      }
-
-      case 'belongsTo': {
-        const relatedType = args.text[0] ? removeQuotes(args.text[0]) : 'unknown';
-        const optionsNode = args.nodes[1];
-        let isAsync = false;
-
-        if (optionsNode && optionsNode.kind() === 'object') {
-          try {
-            const parsedOptions = parseObjectLiteralFromNode(optionsNode);
-            isAsync = parsedOptions.async === 'true';
-          } catch {
-            // Ignore parsing errors
-          }
-        }
-
-        const modelName = toPascalCase(relatedType);
-        let tsType: string;
-        const imports: string[] = [];
-
-        if (isAsync) {
-          tsType = `Promise<${modelName} | null>`;
-        } else {
-          tsType = `${modelName} | null`;
-        }
-
-        return {
-          type: tsType,
-          imports: imports.length > 0 ? imports : undefined,
-        };
-      }
-
-      case 'hasMany': {
-        const relatedType = args.text[0] ? removeQuotes(args.text[0]) : 'unknown';
-        const optionsNode = args.nodes[1];
-        let isAsync = false;
-
-        if (optionsNode && optionsNode.kind() === 'object') {
-          try {
-            const parsedOptions = parseObjectLiteralFromNode(optionsNode);
-            isAsync = parsedOptions.async === 'true';
-          } catch {
-            // Ignore parsing errors
-          }
-        }
-
-        const modelName = toPascalCase(relatedType);
-        let tsType: string;
-        const imports: string[] = [];
-
-        if (isAsync) {
-          tsType = `AsyncHasMany<${modelName}>`;
-          const emberDataSource = options?.emberDataImportSource || DEFAULT_EMBER_DATA_SOURCE;
-          imports.push(`type { AsyncHasMany } from '${emberDataSource}'`);
-        } else {
-          tsType = `HasMany<${modelName}>`;
-          const emberDataSource = options?.emberDataImportSource || DEFAULT_EMBER_DATA_SOURCE;
-          imports.push(`type { HasMany } from '${emberDataSource}'`);
-        }
-
-        return {
-          type: tsType,
-          imports: imports.length > 0 ? imports : undefined,
-        };
-      }
-
-      default:
-        return null;
-    }
+    return extractTypeFromDecoratorCore(decoratorType, firstArg, parsedOptions, options);
   } catch (error) {
     debugLog(options, `Error extracting type from decorator: ${String(error)}`);
     return null;
@@ -2436,119 +2449,9 @@ export function extractTypeFromDecoratorWithNodes(
 }
 
 /**
- * Extract TypeScript type from an EmberData decorator based on the decorator type and arguments
+ * @deprecated Use extractTypeFromDecorator instead
  */
-export function extractTypeFromDecorator(
-  decoratorType: string,
-  args: string[],
-  options?: TransformOptions
-): ExtractedType | null {
-  try {
-    switch (decoratorType) {
-      case 'attr': {
-        const attrType = args[0] ? removeQuotes(args[0]) : 'unknown';
-        const optionsText = args[1];
-        let hasDefaultValue = false;
-        let allowNull = true;
-
-        if (optionsText) {
-          try {
-            const parsedOptions = parseObjectLiteral(optionsText);
-            hasDefaultValue = 'defaultValue' in parsedOptions;
-            allowNull = parsedOptions.allowNull !== 'false';
-          } catch {
-            // Ignore parsing errors
-          }
-        }
-
-        // Map EmberData attribute types to TypeScript types
-        const { tsType, imports = [] } = getTypeScriptTypeForAttribute(attrType, hasDefaultValue, allowNull, options);
-
-        return {
-          type: tsType,
-          imports: imports.length > 0 ? imports : undefined,
-        };
-      }
-
-      case 'belongsTo': {
-        const relatedType = args[0] ? removeQuotes(args[0]) : 'unknown';
-        const optionsText = args[1];
-        let isAsync = false;
-
-        if (optionsText) {
-          try {
-            const parsedOptions = parseObjectLiteral(optionsText);
-            isAsync = parsedOptions.async === 'true';
-          } catch {
-            // Ignore parsing errors
-          }
-        }
-
-        const modelName = toPascalCase(relatedType);
-        let tsType: string;
-        const imports: string[] = [];
-
-        if (isAsync) {
-          tsType = `Promise<${modelName} | null>`;
-        } else {
-          tsType = `${modelName} | null`;
-        }
-
-        // Add import for the related model type using resource import transformation
-        imports.push(transformModelToResourceImport(relatedType, modelName, options));
-
-        return {
-          type: tsType,
-          imports,
-        };
-      }
-
-      case 'hasMany': {
-        const relatedType = args[0] ? removeQuotes(args[0]) : 'unknown';
-        const optionsText = args[1];
-        let isAsync = false;
-
-        if (optionsText) {
-          try {
-            const parsedOptions = parseObjectLiteral(optionsText);
-            isAsync = parsedOptions.async === 'true';
-          } catch {
-            // Ignore parsing errors
-          }
-        }
-
-        const modelName = toPascalCase(relatedType);
-        let tsType: string;
-        const imports: string[] = [];
-
-        if (isAsync) {
-          tsType = `AsyncHasMany<${modelName}>`;
-          const emberDataSource = options?.emberDataImportSource || DEFAULT_EMBER_DATA_SOURCE;
-          imports.push(`type { AsyncHasMany } from '${emberDataSource}'`);
-        } else {
-          tsType = `HasMany<${modelName}>`;
-          const emberDataSource = options?.emberDataImportSource || DEFAULT_EMBER_DATA_SOURCE;
-          imports.push(`type { HasMany } from '${emberDataSource}'`);
-        }
-
-        // Add import for the related model type using resource import transformation
-        imports.push(transformModelToResourceImport(relatedType, modelName, options));
-
-        return {
-          type: tsType,
-          imports,
-        };
-      }
-
-      default:
-        debugLog(options, `Unknown decorator type for type extraction: ${decoratorType}`);
-        return null;
-    }
-  } catch (error) {
-    debugLog(options, `Error extracting type from decorator: ${String(error)}`);
-    return null;
-  }
-}
+export const extractTypeFromDecoratorWithNodes = extractTypeFromDecorator;
 
 /**
  * Extract import dependencies from a TypeScript type string
@@ -2665,24 +2568,34 @@ export function extractJSDocComment(node: SgNode): string | undefined {
 }
 
 /**
- * Convert EmberData decorator call to schema field using AST nodes
- * This is the preferred method as it avoids text conversion overhead
+ * Parse options object from an AST node for schema field conversion
+ * Returns the parsed options object
  */
-export function convertToSchemaFieldWithNodes(
+function parseSchemaFieldOptions(optionsNode: SgNode | undefined): Record<string, unknown> {
+  if (!optionsNode || optionsNode.kind() !== 'object') {
+    return {};
+  }
+
+  try {
+    return parseObjectLiteralFromNode(optionsNode);
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Core implementation for converting EmberData decorator calls to schema fields
+ * This is the shared logic used by the schema field conversion function
+ */
+function convertToSchemaFieldCore(
   name: string,
   decoratorType: string,
-  args: { text: string[]; nodes: SgNode[] }
+  firstArg: string | undefined,
+  options: Record<string, unknown>
 ): SchemaField | null {
   switch (decoratorType) {
     case 'attr': {
-      const type = args.text[0] ? removeQuotes(args.text[0]) : undefined;
-      const optionsNode = args.nodes[1];
-      let options: Record<string, unknown> = {};
-
-      if (optionsNode && optionsNode.kind() === 'object') {
-        options = parseObjectLiteralFromNode(optionsNode);
-      }
-
+      const type = firstArg ? removeQuotes(firstArg) : undefined;
       return {
         name,
         kind: getFieldKindFromDecorator('attr') as 'attribute',
@@ -2691,14 +2604,7 @@ export function convertToSchemaFieldWithNodes(
       };
     }
     case 'belongsTo': {
-      const type = args.text[0] ? removeQuotes(args.text[0]) : undefined;
-      const optionsNode = args.nodes[1];
-      let options: Record<string, unknown> = {};
-
-      if (optionsNode && optionsNode.kind() === 'object') {
-        options = parseObjectLiteralFromNode(optionsNode);
-      }
-
+      const type = firstArg ? removeQuotes(firstArg) : undefined;
       return {
         name,
         kind: getFieldKindFromDecorator('belongsTo') as 'belongsTo',
@@ -2707,14 +2613,7 @@ export function convertToSchemaFieldWithNodes(
       };
     }
     case 'hasMany': {
-      const type = args.text[0] ? removeQuotes(args.text[0]) : undefined;
-      const optionsNode = args.nodes[1];
-      let options: Record<string, unknown> = {};
-
-      if (optionsNode && optionsNode.kind() === 'object') {
-        options = parseObjectLiteralFromNode(optionsNode);
-      }
-
+      const type = firstArg ? removeQuotes(firstArg) : undefined;
       return {
         name,
         kind: getFieldKindFromDecorator('hasMany') as 'hasMany',
@@ -2723,35 +2622,19 @@ export function convertToSchemaFieldWithNodes(
       };
     }
     case 'fragment': {
-      const fragmentType = args.text[0] ? removeQuotes(args.text[0]) : name;
-      const optionsNode = args.nodes[1];
-      let userOptions: Record<string, unknown> = {};
-
-      if (optionsNode && optionsNode.kind() === 'object') {
-        userOptions = parseObjectLiteralFromNode(optionsNode);
-      }
-
-      // Use withFragmentDefaults format
+      const fragmentType = firstArg ? removeQuotes(firstArg) : name;
       return {
         name,
         kind: getFieldKindFromDecorator('fragment') as 'schema-object',
         type: `fragment:${fragmentType}`,
         options: {
           objectExtensions: ['ember-object', 'fragment'],
-          ...userOptions,
+          ...options,
         },
       };
     }
     case 'fragmentArray': {
-      const fragmentType = args.text[0] ? removeQuotes(args.text[0]) : name;
-      const optionsNode = args.nodes[1];
-      let userOptions: Record<string, unknown> = {};
-
-      if (optionsNode && optionsNode.kind() === 'object') {
-        userOptions = parseObjectLiteralFromNode(optionsNode);
-      }
-
-      // Use withFragmentArrayDefaults format
+      const fragmentType = firstArg ? removeQuotes(firstArg) : name;
       return {
         name,
         kind: getFieldKindFromDecorator('fragmentArray') as 'schema-array',
@@ -2759,27 +2642,19 @@ export function convertToSchemaFieldWithNodes(
         options: {
           arrayExtensions: ['ember-object', 'ember-array-like', 'fragment-array'],
           defaultValue: true,
-          ...userOptions,
+          ...options,
         },
       };
     }
     case 'array': {
-      const optionsNode = args.nodes[0];
-      let userOptions: Record<string, unknown> = {};
-
-      if (optionsNode && optionsNode.kind() === 'object') {
-        userOptions = parseObjectLiteralFromNode(optionsNode);
-      }
-
-      // Use withArrayDefaults format - type is array:singularized(name)
-      // Note: The singularization will be done at schema generation time
+      // For array decorator, options are passed directly
       return {
         name,
         kind: getFieldKindFromDecorator('array') as 'array',
         type: `array:${name}`, // Will be singularized during schema generation
         options: {
           arrayExtensions: ['ember-object', 'ember-array-like', 'fragment-array'],
-          ...userOptions,
+          ...options,
         },
       };
     }
@@ -2789,124 +2664,26 @@ export function convertToSchemaFieldWithNodes(
 }
 
 /**
- * Convert EmberData decorator call to schema field
- * Shared utility for processing decorator calls in both transforms
+ * Convert EmberData decorator call to schema field using AST nodes
  */
-export function convertToSchemaField(name: string, decoratorType: string, args: string[]): SchemaField | null {
-  switch (decoratorType) {
-    case 'attr': {
-      const type = args[0] ? removeQuotes(args[0]) : undefined;
-      const optionsText = args[1];
-      let options: Record<string, unknown> = {};
+export function convertToSchemaField(
+  name: string,
+  decoratorType: string,
+  args: { text: string[]; nodes: SgNode[] }
+): SchemaField | null {
+  // For 'array' decorator, the first arg is options (not type), so we need special handling
+  const isArrayDecorator = decoratorType === 'array';
+  const firstArg = isArrayDecorator ? undefined : args.text[0];
+  const optionsArg = isArrayDecorator ? args.nodes[0] : args.nodes[1];
+  const options = parseSchemaFieldOptions(optionsArg);
 
-      if (optionsText) {
-        options = parseObjectLiteral(optionsText);
-      }
-
-      return {
-        name,
-        kind: getFieldKindFromDecorator('attr') as 'attribute',
-        type,
-        options: Object.keys(options).length > 0 ? options : undefined,
-      };
-    }
-    case 'belongsTo': {
-      const type = args[0] ? removeQuotes(args[0]) : undefined;
-      const optionsText = args[1];
-      let options: Record<string, unknown> = {};
-
-      if (optionsText) {
-        options = parseObjectLiteral(optionsText);
-      }
-
-      return {
-        name,
-        kind: getFieldKindFromDecorator('belongsTo') as 'belongsTo',
-        type,
-        options: Object.keys(options).length > 0 ? options : undefined,
-      };
-    }
-    case 'hasMany': {
-      const type = args[0] ? removeQuotes(args[0]) : undefined;
-      const optionsText = args[1];
-      let options: Record<string, unknown> = {};
-
-      if (optionsText) {
-        options = parseObjectLiteral(optionsText);
-      }
-
-      return {
-        name,
-        kind: getFieldKindFromDecorator('hasMany') as 'hasMany',
-        type,
-        options: Object.keys(options).length > 0 ? options : undefined,
-      };
-    }
-    case 'fragment': {
-      const fragmentType = args[0] ? removeQuotes(args[0]) : name;
-      const optionsText = args[1];
-      let userOptions: Record<string, unknown> = {};
-
-      if (optionsText) {
-        userOptions = parseObjectLiteral(optionsText);
-      }
-
-      // Use withFragmentDefaults format
-      return {
-        name,
-        kind: getFieldKindFromDecorator('fragment') as 'schema-object',
-        type: `fragment:${fragmentType}`,
-        options: {
-          objectExtensions: ['ember-object', 'fragment'],
-          ...userOptions,
-        },
-      };
-    }
-    case 'fragmentArray': {
-      const fragmentType = args[0] ? removeQuotes(args[0]) : name;
-      const optionsText = args[1];
-      let userOptions: Record<string, unknown> = {};
-
-      if (optionsText) {
-        userOptions = parseObjectLiteral(optionsText);
-      }
-
-      // Use withFragmentArrayDefaults format
-      return {
-        name,
-        kind: getFieldKindFromDecorator('fragmentArray') as 'schema-array',
-        type: `fragment:${fragmentType}`,
-        options: {
-          arrayExtensions: ['ember-object', 'ember-array-like', 'fragment-array'],
-          defaultValue: true,
-          ...userOptions,
-        },
-      };
-    }
-    case 'array': {
-      const optionsText = args[0];
-      let userOptions: Record<string, unknown> = {};
-
-      if (optionsText) {
-        userOptions = parseObjectLiteral(optionsText);
-      }
-
-      // Use withArrayDefaults format - type is array:singularized(name)
-      // Note: The singularization will be done at schema generation time
-      return {
-        name,
-        kind: getFieldKindFromDecorator('array') as 'array',
-        type: `array:${name}`, // Will be singularized during schema generation
-        options: {
-          arrayExtensions: ['ember-object', 'ember-array-like', 'fragment-array'],
-          ...userOptions,
-        },
-      };
-    }
-    default:
-      return null;
-  }
+  return convertToSchemaFieldCore(name, decoratorType, firstArg, options);
 }
+
+/**
+ * @deprecated Use convertToSchemaField instead
+ */
+export const convertToSchemaFieldWithNodes = convertToSchemaField;
 
 /**
  * Convert a SchemaField to the legacy schema field format

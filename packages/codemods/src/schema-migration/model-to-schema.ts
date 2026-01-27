@@ -5,7 +5,7 @@ import { dirname, join, resolve } from 'path';
 import type { SchemaField, TransformArtifact, TransformOptions } from './utils/ast-utils.js';
 import {
   buildLegacySchemaObject,
-  convertToSchemaFieldWithNodes,
+  convertToSchemaField,
   createExtensionFromOriginalFile,
   createTypeArtifact,
   debugLog,
@@ -15,7 +15,7 @@ import {
   extractBaseName,
   extractPascalCaseName,
   extractTypeFromDeclaration,
-  extractTypeFromDecoratorWithNodes,
+  extractTypeFromDecorator,
   extractTypeFromMethod,
   findDefaultExport,
   findEmberImportLocalName,
@@ -1652,13 +1652,13 @@ function extractModelFields(
         // Extract type from decorator if we don't have explicit type annotation
         if (!typeInfo) {
           try {
-            typeInfo = extractTypeFromDecoratorWithNodes(originalDecoratorName, decoratorArgs, options) ?? undefined;
+            typeInfo = extractTypeFromDecorator(originalDecoratorName, decoratorArgs, options) ?? undefined;
           } catch (error) {
             debugLog(options, `DEBUG: Error extracting type from decorator for ${fieldName}: ${String(error)}`);
           }
         }
 
-        const schemaField = convertToSchemaFieldWithNodes(fieldName, originalDecoratorName, decoratorArgs);
+        const schemaField = convertToSchemaField(fieldName, originalDecoratorName, decoratorArgs);
         if (schemaField) {
           schemaFields.push(schemaField);
           isSchemaField = true;
