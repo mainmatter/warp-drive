@@ -629,28 +629,6 @@ export function getMixinImports(root: SgNode, options?: TransformOptions): Map<s
 }
 
 /**
- * Parse decorator arguments from a decorator node
- */
-export function parseDecoratorArguments(decorator: SgNode): string[] {
-  const args: string[] = [];
-
-  // Find the arguments list in the decorator
-  const argumentsList = decorator.find({ rule: { kind: 'arguments' } });
-  if (!argumentsList) return args;
-
-  // Get all argument nodes
-  const argumentNodes = argumentsList
-    .children()
-    .filter((child) => child.kind() !== '(' && child.kind() !== ')' && child.kind() !== ',');
-
-  for (const arg of argumentNodes) {
-    args.push(arg.text());
-  }
-
-  return args;
-}
-
-/**
  * Parse decorator arguments from a decorator node, returning both text and AST nodes
  */
 export function parseDecoratorArgumentsWithNodes(decorator: SgNode): { text: string[]; nodes: SgNode[] } {
@@ -1071,51 +1049,51 @@ function convertToAbsoluteImportPath(resolvedPath: string, baseDir: string, opti
 }
 
 /**
- * Check if an import path points to a model file based on configuration
+ * Check if an import path matches configured sources for a given source type
+ * Generic implementation for both model and mixin import path checking
  */
-function isModelImportPath(importPath: string, options?: TransformOptions): boolean {
-  debugLog(options, `Checking if import path is model: ${importPath}`);
-  debugLog(options, `Model import source: ${options?.modelImportSource}`);
-  debugLog(options, `Additional model sources: ${JSON.stringify(options?.additionalModelSources)}`);
+function isImportPathOfType(importPath: string, sourceType: ImportSourceType, options?: TransformOptions): boolean {
+  const config = getImportSourceConfig(sourceType, options);
 
-  // Check against configured model import source
-  if (options?.modelImportSource && importPath.startsWith(options.modelImportSource)) {
-    debugLog(options, `Matched configured model import source: ${options.modelImportSource}`);
+  debugLog(options, `Checking if import path is ${sourceType}: ${importPath}`);
+  debugLog(options, `Primary source: ${config.primarySource}`);
+  debugLog(options, `Additional sources: ${JSON.stringify(config.additionalSources)}`);
+
+  // Check against configured primary source
+  if (config.primarySource && importPath.startsWith(config.primarySource)) {
+    debugLog(options, `Matched configured ${sourceType} import source: ${config.primarySource}`);
     return true;
   }
 
-  // Check against additional model sources from configuration
-  if (options?.additionalModelSources && Array.isArray(options.additionalModelSources)) {
-    const matched = options.additionalModelSources.some((source) => {
+  // Check against additional sources from configuration
+  if (config.additionalSources && Array.isArray(config.additionalSources)) {
+    const matched = config.additionalSources.some((source) => {
       const matches = importPath.startsWith(source.pattern);
       debugLog(options, `Checking pattern ${source.pattern}: ${matches}`);
       return matches;
     });
     if (matched) {
-      debugLog(options, `Matched additional model source`);
+      debugLog(options, `Matched additional ${sourceType} source`);
       return true;
     }
   }
 
-  debugLog(options, `No model source match found`);
+  debugLog(options, `No ${sourceType} source match found`);
   return false;
+}
+
+/**
+ * Check if an import path points to a model file based on configuration
+ */
+function isModelImportPath(importPath: string, options?: TransformOptions): boolean {
+  return isImportPathOfType(importPath, 'model', options);
 }
 
 /**
  * Check if an import path points to a mixin file based on configuration
  */
 function isMixinImportPath(importPath: string, options?: TransformOptions): boolean {
-  // Check against configured mixin import source
-  if (options?.mixinImportSource && importPath.startsWith(options.mixinImportSource)) {
-    return true;
-  }
-
-  // Check against additional mixin sources from configuration
-  if (options?.additionalMixinSources) {
-    return options.additionalMixinSources.some((source) => importPath.startsWith(source.pattern));
-  }
-
-  return false;
+  return isImportPathOfType(importPath, 'mixin', options);
 }
 
 /**
@@ -1164,116 +1142,119 @@ function resolveSpecialMixinImport(importPath: string, baseDir: string, options?
 }
 
 /**
- * Resolve an absolute mixin import path to a file system path
+ * Type of import source for resolving absolute imports
  */
-function resolveAbsoluteMixinImport(importPath: string, baseDir: string, options?: TransformOptions): string | null {
+type ImportSourceType = 'model' | 'mixin';
+
+/**
+ * Configuration for building import sources
+ */
+interface ImportSourceConfig {
+  primarySource?: string;
+  primaryDir?: string;
+  additionalSources?: Array<{ pattern: string; dir: string }>;
+}
+
+/**
+ * Get import source configuration based on source type
+ */
+function getImportSourceConfig(sourceType: ImportSourceType, options?: TransformOptions): ImportSourceConfig {
+  if (sourceType === 'model') {
+    return {
+      primarySource: options?.modelImportSource,
+      primaryDir: options?.modelSourceDir,
+      additionalSources: options?.additionalModelSources,
+    };
+  }
+  return {
+    primarySource: options?.mixinImportSource,
+    primaryDir: options?.mixinSourceDir,
+    additionalSources: options?.additionalMixinSources,
+  };
+}
+
+/**
+ * Resolve an absolute import path to a file system path
+ * Generic implementation for both model and mixin imports
+ */
+function resolveAbsoluteImport(
+  importPath: string,
+  sourceType: ImportSourceType,
+  options?: TransformOptions
+): string | null {
   try {
-    // Build mixin sources from configuration
-    const mixinSources: Array<{ pattern: string; dir: string }> = [];
+    debugLog(options, `Resolving absolute ${sourceType} import: ${importPath}`);
 
-    // Add configured mixin source
-    if (options?.mixinImportSource && options?.mixinSourceDir) {
-      mixinSources.push({ pattern: options.mixinImportSource + '/', dir: options.mixinSourceDir });
+    // Get configuration for this source type
+    const config = getImportSourceConfig(sourceType, options);
+
+    // Build sources array from configuration
+    const sources: Array<{ pattern: string; dir: string }> = [];
+
+    // Add primary source if configured
+    if (config.primarySource && config.primaryDir) {
+      sources.push({ pattern: config.primarySource + '/', dir: config.primaryDir });
     }
 
-    // Add additional mixin sources from configuration
-    if (options?.additionalMixinSources) {
-      mixinSources.push(...options.additionalMixinSources);
+    // Add additional sources from configuration
+    if (config.additionalSources && Array.isArray(config.additionalSources)) {
+      sources.push(...config.additionalSources);
     }
 
-    // Find matching mixin source
-    const mixinSource = mixinSources.find((source) => importPath.startsWith(source.pattern));
-    if (!mixinSource) {
-      debugLog(options, `No matching mixin source found for import: ${importPath}`);
+    debugLog(options, `${sourceType} sources: ${JSON.stringify(sources)}`);
+
+    // Find matching source
+    const matchedSource = sources.find((source) => importPath.startsWith(source.pattern));
+    if (!matchedSource) {
+      debugLog(options, `No matching ${sourceType} source found for import: ${importPath}`);
       return null;
     }
 
-    // Extract the mixin name from the import path
-    // e.g., 'my-app/mixins/permissable' -> 'permissable'
-    const mixinName = importPath.replace(mixinSource.pattern, '');
+    debugLog(options, `Found matching ${sourceType} source: ${JSON.stringify(matchedSource)}`);
 
-    // Construct the file path (mixinSource.dir is already an absolute path)
-    const filePath = `${mixinSource.dir}/${mixinName}.ts`;
+    // Extract the name from the import path
+    // e.g., 'my-app/models/notification-message' -> 'notification-message'
+    const name = importPath.replace(matchedSource.pattern, '');
+    debugLog(options, `Extracted ${sourceType} name: ${name}`);
 
-    // Check if the file exists
-    if (existsSync(filePath)) {
-      return filePath;
+    // Try .ts extension first (source.dir is already an absolute path)
+    const tsFilePath = `${matchedSource.dir}/${name}.ts`;
+    debugLog(options, `Trying file path: ${tsFilePath}`);
+
+    if (existsSync(tsFilePath)) {
+      debugLog(options, `Found ${sourceType} file: ${tsFilePath}`);
+      return tsFilePath;
     }
 
     // Try .js extension
-    const jsFilePath = `${mixinSource.dir}/${mixinName}.js`;
+    const jsFilePath = `${matchedSource.dir}/${name}.js`;
+    debugLog(options, `Trying JS file path: ${jsFilePath}`);
+
     if (existsSync(jsFilePath)) {
+      debugLog(options, `Found ${sourceType} file: ${jsFilePath}`);
       return jsFilePath;
     }
 
-    debugLog(options, `Mixin file not found for import: ${importPath} (tried ${filePath} and ${jsFilePath})`);
+    debugLog(options, `${sourceType} file not found for import: ${importPath} (tried ${tsFilePath} and ${jsFilePath})`);
     return null;
   } catch (error) {
-    debugLog(options, `Error resolving absolute mixin import: ${String(error)}`);
+    debugLog(options, `Error resolving absolute ${sourceType} import: ${String(error)}`);
     return null;
   }
+}
+
+/**
+ * Resolve an absolute mixin import path to a file system path
+ */
+function resolveAbsoluteMixinImport(importPath: string, baseDir: string, options?: TransformOptions): string | null {
+  return resolveAbsoluteImport(importPath, 'mixin', options);
 }
 
 /**
  * Resolve an absolute model import path to a file system path
  */
 function resolveAbsoluteModelImport(importPath: string, baseDir: string, options?: TransformOptions): string | null {
-  try {
-    debugLog(options, `Resolving absolute model import: ${importPath} in baseDir: ${baseDir}`);
-
-    // Build model sources from configuration
-    const modelSources: Array<{ pattern: string; dir: string }> = [];
-
-    // Add configured model source
-    if (options?.modelImportSource && options?.modelSourceDir) {
-      modelSources.push({ pattern: options.modelImportSource + '/', dir: options.modelSourceDir });
-    }
-
-    // Add additional model sources from configuration
-    if (options?.additionalModelSources && Array.isArray(options.additionalModelSources)) {
-      modelSources.push(...options.additionalModelSources);
-    }
-
-    debugLog(options, `Model sources: ${JSON.stringify(modelSources)}`);
-
-    // Find matching model source
-    const modelSource = modelSources.find((source) => importPath.startsWith(source.pattern));
-    if (!modelSource) {
-      debugLog(options, `No matching model source found for import: ${importPath}`);
-      return null;
-    }
-
-    debugLog(options, `Found matching model source: ${JSON.stringify(modelSource)}`);
-
-    // Extract the model name from the import path
-    // e.g., 'my-app/models/notification-message' -> 'notification-message'
-    const modelName = importPath.replace(modelSource.pattern, '');
-    debugLog(options, `Extracted model name: ${modelName}`);
-
-    // Construct the file path (modelSource.dir is already an absolute path)
-    const filePath = `${modelSource.dir}/${modelName}.ts`;
-    debugLog(options, `Trying file path: ${filePath}`);
-
-    // Check if the file exists
-    if (existsSync(filePath)) {
-      debugLog(options, `Found model file: ${filePath}`);
-      return filePath;
-    }
-
-    // Try .js extension
-    const jsFilePath = `${modelSource.dir}/${modelName}.js`;
-    debugLog(options, `Trying JS file path: ${jsFilePath}`);
-    if (existsSync(jsFilePath)) {
-      debugLog(options, `Found model file: ${jsFilePath}`);
-      return jsFilePath;
-    }
-
-    debugLog(options, `Model file not found for import: ${importPath} (tried ${filePath} and ${jsFilePath})`);
-    return null;
-  } catch (error) {
-    debugLog(options, `Error resolving absolute model import: ${String(error)}`);
-    return null;
-  }
+  return resolveAbsoluteImport(importPath, 'model', options);
 }
 
 /**
@@ -1738,6 +1719,49 @@ export function withTransformWrapper<T>(
 }
 
 /**
+ * Check if a resolved path matches any of the given intermediate paths
+ * using additional model sources for path mapping
+ */
+function matchesIntermediatePath(
+  resolvedPath: string,
+  intermediatePaths: string[] | undefined,
+  additionalModelSources: Array<{ pattern: string; dir: string }> | undefined,
+  options?: TransformOptions
+): boolean {
+  if (!intermediatePaths || !additionalModelSources) {
+    return false;
+  }
+
+  for (const intermediatePath of intermediatePaths) {
+    for (const { pattern, dir } of additionalModelSources) {
+      if (intermediatePath.startsWith(pattern.replace('/*', ''))) {
+        // Convert intermediate path to file path using the mapping
+        const relativePart = intermediatePath.replace(pattern.replace('/*', ''), '');
+        const expectedFilePath = dir.replace('/*', relativePart);
+
+        // Check both .ts and .js extensions
+        const possiblePaths = [`${expectedFilePath}.ts`, `${expectedFilePath}.js`];
+        // The resolvedPath might already have an extension, or might not
+        const pathMatches = possiblePaths.some((p) => {
+          // Check if resolvedPath matches exactly
+          if (resolvedPath === p) return true;
+          // Check if resolvedPath without extension matches
+          if (`${resolvedPath}.ts` === p || `${resolvedPath}.js` === p) return true;
+          return false;
+        });
+
+        if (pathMatches) {
+          debugLog(options, `Found match: resolved path ${resolvedPath} matches intermediate path ${intermediatePath}`);
+          return true;
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
  * Check if a file is a model file by analyzing its content
  */
 export function isModelFile(filePath: string, source: string, options?: TransformOptions): boolean {
@@ -1860,73 +1884,22 @@ export function isModelFile(filePath: string, source: string, options?: Transfor
           const resolvedPath = resolve(dirname(filePath), sourceText);
           debugLog(options, `Checking relative import ${sourceText} -> ${resolvedPath}`);
 
-          // Debug for client-core files
-
-          // Check if this resolved path corresponds to any intermediate model
-          if (options.intermediateModelPaths) {
-            for (const intermediatePath of options.intermediateModelPaths) {
-              // Use additionalModelSources to map from import path to file path
-              if (options.additionalModelSources) {
-                for (const { pattern, dir } of options.additionalModelSources) {
-                  if (intermediatePath.startsWith(pattern.replace('/*', ''))) {
-                    // Convert intermediate path to file path using the mapping
-                    const relativePart = intermediatePath.replace(pattern.replace('/*', ''), '');
-                    const expectedFilePath = dir.replace('/*', relativePart);
-
-                    // Check both .ts and .js extensions
-                    const possiblePaths = [`${expectedFilePath}.ts`, `${expectedFilePath}.js`];
-                    // The resolvedPath might already have an extension, or might not
-                    const pathMatches = possiblePaths.some((p) => {
-                      // Check if resolvedPath matches exactly
-                      if (resolvedPath === p) return true;
-                      // Check if resolvedPath without extension matches
-                      if (`${resolvedPath}.ts` === p || `${resolvedPath}.js` === p) return true;
-                      return false;
-                    });
-                    if (pathMatches) {
-                      debugLog(
-                        options,
-                        `Found match: ${sourceText} resolves to intermediate model ${intermediatePath}`
-                      );
-                      isBaseModelImport = true;
-                      break;
-                    }
-                  }
-                }
-              }
-            }
-          }
-
-          // Check if this resolved path corresponds to any intermediate fragment
-          if (!isBaseModelImport && options.intermediateFragmentPaths) {
-            for (const intermediatePath of options.intermediateFragmentPaths) {
-              // Use additionalModelSources to map from import path to file path
-              if (options.additionalModelSources) {
-                for (const { pattern, dir } of options.additionalModelSources) {
-                  if (intermediatePath.startsWith(pattern.replace('/*', ''))) {
-                    // Convert intermediate path to file path using the mapping
-                    const relativePart = intermediatePath.replace(pattern.replace('/*', ''), '');
-                    const expectedFilePath = dir.replace('/*', relativePart);
-
-                    // Check both .ts and .js extensions
-                    const possiblePaths = [`${expectedFilePath}.ts`, `${expectedFilePath}.js`];
-                    const pathMatches = possiblePaths.some((p) => {
-                      if (resolvedPath === p) return true;
-                      if (`${resolvedPath}.ts` === p || `${resolvedPath}.js` === p) return true;
-                      return false;
-                    });
-                    if (pathMatches) {
-                      debugLog(
-                        options,
-                        `Found match: ${sourceText} resolves to intermediate fragment ${intermediatePath}`
-                      );
-                      isBaseModelImport = true;
-                      break;
-                    }
-                  }
-                }
-              }
-            }
+          // Check if this resolved path corresponds to any intermediate model or fragment
+          if (
+            matchesIntermediatePath(
+              resolvedPath,
+              options.intermediateModelPaths,
+              options.additionalModelSources,
+              options
+            ) ||
+            matchesIntermediatePath(
+              resolvedPath,
+              options.intermediateFragmentPaths,
+              options.additionalModelSources,
+              options
+            )
+          ) {
+            isBaseModelImport = true;
           }
         } catch (error: unknown) {
           // Ignore path resolution errors
@@ -2145,7 +2118,6 @@ function parseObjectPropertiesFromNode(objectNode: SgNode): Record<string, unkno
 
 /**
  * Parse an object literal from an AST node directly
- * This is the preferred method as it avoids text conversion overhead
  */
 export function parseObjectLiteralFromNode(objectNode: SgNode): Record<string, unknown> {
   try {
@@ -2288,6 +2260,7 @@ export function createExtensionArtifactWithTypes(
  * Extract TypeScript type annotation from a property declaration
  */
 export function extractTypeFromDeclaration(propertyNode: SgNode, options?: TransformOptions): ExtractedType | null {
+  const emberDataImportSource = options?.emberDataImportSource || DEFAULT_EMBER_DATA_SOURCE;
   try {
     // Look for type annotation in the property declaration
     const typeAnnotation = propertyNode.find({ rule: { kind: 'type_annotation' } });
@@ -2313,7 +2286,7 @@ export function extractTypeFromDeclaration(propertyNode: SgNode, options?: Trans
     const optional = propertyNode.text().includes('?:');
 
     // Extract import dependencies from the type
-    const imports = extractImportsFromType(typeText);
+    const imports = extractImportsFromType(typeText, emberDataImportSource);
 
     return {
       type: typeText,
@@ -2449,20 +2422,14 @@ export function extractTypeFromDecorator(
 }
 
 /**
- * @deprecated Use extractTypeFromDecorator instead
- */
-export const extractTypeFromDecoratorWithNodes = extractTypeFromDecorator;
-
-/**
  * Extract import dependencies from a TypeScript type string
  */
-function extractImportsFromType(typeText: string, options?: TransformOptions): string[] {
+function extractImportsFromType(typeText: string, emberDataImportSource: string): string[] {
   const imports: string[] = [];
 
   // Look for specific types that need imports
   if (typeText.includes('AsyncHasMany') || typeText.includes('HasMany')) {
-    const emberDataSource = options?.emberDataImportSource || DEFAULT_EMBER_DATA_SOURCE;
-    imports.push(`type { AsyncHasMany, HasMany } from '${emberDataSource}'`);
+    imports.push(`type { AsyncHasMany, HasMany } from '${emberDataImportSource}'`);
   }
 
   return imports;
@@ -2681,11 +2648,6 @@ export function convertToSchemaField(
 }
 
 /**
- * @deprecated Use convertToSchemaField instead
- */
-export const convertToSchemaFieldWithNodes = convertToSchemaField;
-
-/**
  * Convert a SchemaField to the legacy schema field format
  * Shared between model-to-schema and mixin-to-schema transforms
  */
@@ -2766,6 +2728,7 @@ export function generateTraitSchemaCode(
  * Extract TypeScript type from a method declaration
  */
 export function extractTypeFromMethod(methodNode: SgNode, options?: TransformOptions): ExtractedType | null {
+  const emberDataImportSource = options?.emberDataImportSource || DEFAULT_EMBER_DATA_SOURCE;
   try {
     // Look for return type annotation
     const returnType = methodNode.find({ rule: { kind: 'type_annotation' } });
@@ -2773,7 +2736,7 @@ export function extractTypeFromMethod(methodNode: SgNode, options?: TransformOpt
       const typeNode = returnType.children().find((child) => child.kind() !== ':');
       if (typeNode) {
         const typeText = typeNode.text();
-        const imports = extractImportsFromType(typeText);
+        const imports = extractImportsFromType(typeText, emberDataImportSource);
         return {
           type: typeText,
           imports: imports.length > 0 ? imports : undefined,
@@ -2991,6 +2954,7 @@ export function extractTypesFromInterface(
   options?: TransformOptions
 ): Map<string, ExtractedType> {
   const typeMap = new Map<string, ExtractedType>();
+  const emberDataImportSource = options?.emberDataImportSource || DEFAULT_EMBER_DATA_SOURCE;
 
   // Find the interface body
   const body = interfaceNode.find({ rule: { kind: 'object_type' } });
@@ -3021,7 +2985,7 @@ export function extractTypesFromInterface(
       type: typeText,
       readonly,
       optional,
-      imports: extractImportsFromType(typeText),
+      imports: extractImportsFromType(typeText, emberDataImportSource),
     });
 
     debugLog(options, `Extracted type for ${propertyName}: ${typeText}`);
@@ -3037,6 +3001,7 @@ export function extractJSDocTypes(propertyNode: SgNode, options?: TransformOptio
   // Look for JSDoc comments preceding the property
   const siblings = propertyNode.parent()?.children() ?? [];
   const propertyIndex = siblings.indexOf(propertyNode);
+  const emberDataImportSource = options?.emberDataImportSource || DEFAULT_EMBER_DATA_SOURCE;
 
   // Check previous siblings for JSDoc comments
   for (let i = propertyIndex - 1; i >= 0; i--) {
@@ -3054,7 +3019,7 @@ export function extractJSDocTypes(propertyNode: SgNode, options?: TransformOptio
 
         return {
           type: typeText,
-          imports: extractImportsFromType(typeText),
+          imports: extractImportsFromType(typeText, emberDataImportSource),
         };
       }
     }
