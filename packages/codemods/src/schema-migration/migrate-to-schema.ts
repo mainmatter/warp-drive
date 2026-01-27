@@ -309,7 +309,6 @@ type ArtifactTransformer = (filePath: string, code: string, options: TransformOp
 interface ProcessFilesOptions {
   files: Map<string, { code: string }>;
   transformer: ArtifactTransformer;
-  enhancedOptions: TransformOptions;
   finalOptions: FinalOptions;
   logger: Logger;
   /** Message shown when a file is skipped */
@@ -322,7 +321,6 @@ interface ProcessFilesOptions {
 async function processFiles({
   files,
   transformer,
-  enhancedOptions,
   finalOptions,
   logger,
   skipMessage,
@@ -337,7 +335,7 @@ async function processFiles({
         logger.debug(`🔄 Processing: ${filePath}`);
       }
 
-      const artifacts = transformer(filePath, fileInput.code, enhancedOptions);
+      const artifacts = transformer(filePath, fileInput.code, finalOptions);
 
       if (artifacts.length > 0) {
         processed++;
@@ -417,8 +415,12 @@ export async function runMigration(options: MigrateOptions): Promise<void> {
   logger.warn(`📋 Skipped ${codemod.input.skipped.length} files total`);
   logger.warn(`📋 Errors found while reading files: ${codemod.input.errors.length}`);
 
+  // Unfortunately a lot of the utils rely on the options object to carry a lot of the data currently
+  // It'd take a lot of changes to make them use the codemod instance instead.
   finalOptions.allModelFiles = Object.keys(codemod.input.models);
   finalOptions.allMixinFiles = Object.keys(codemod.input.mixins);
+  finalOptions.modelsWithExtensions = codemod.modelsWithExtensions;
+  finalOptions.modelConnectedMixins = codemod.mixinsImportedByModels;
   finalOptions.modelsWithExtensions = codemod.modelsWithExtensions;
 
   // Process intermediate models to generate trait artifacts first
@@ -451,18 +453,10 @@ export async function runMigration(options: MigrateOptions): Promise<void> {
     }
   }
 
-  // Pass the model-connected mixins and models with extensions to the transform options
-  const enhancedOptions = {
-    ...finalOptions,
-    modelConnectedMixins: codemod.mixinsImportedByModels,
-    modelsWithExtensions: codemod.modelsWithExtensions,
-  };
-
   // Process model files
   const modelResults = await processFiles({
     files: codemod.input.models,
     transformer: modelToArtifacts,
-    enhancedOptions,
     finalOptions,
     logger,
     skipMessage: 'no artifacts generated',
@@ -472,7 +466,6 @@ export async function runMigration(options: MigrateOptions): Promise<void> {
   const mixinResults = await processFiles({
     files: codemod.input.mixins,
     transformer: mixinToArtifacts,
-    enhancedOptions,
     finalOptions,
     logger,
     skipMessage: 'not a model mixin',
