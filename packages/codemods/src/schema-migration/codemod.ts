@@ -11,9 +11,11 @@ import {
   findEmberImportLocalName,
   getLanguageFromPath,
   isModelFile as astIsModelFile,
+  extractBaseName,
 } from './utils/ast-utils.js';
 import { Logger } from './utils/logger.js';
 import { analyzeModelMixinUsage } from './processors/mixin.js';
+import { willModelHaveExtension } from './model-to-schema.js';
 
 export interface MigrateOptions extends Partial<TransformOptions> {
   mixinsOnly?: boolean;
@@ -161,15 +163,31 @@ export class Codemod {
   finalOptions: FinalOptions;
   input: Input = new Input();
 
+  mixinsImportedByModels: Set<string> = new Set();
+  modelsWithExtensions: Set<string> = new Set();
+
   constructor(logger: Logger, finalOptions: FinalOptions) {
     this.logger = logger;
     this.finalOptions = finalOptions;
   }
 
-  mixinsImportedByModels: Set<string> = new Set();
-
   findMixinsUsedByModels() {
     this.mixinsImportedByModels = analyzeModelMixinUsage(this, this.finalOptions);
+  }
+
+  findModelExtensions() {
+    this.logger.info(`🔍 Analyzing which models will have extensions...`);
+    for (const [modelFile, modelInput] of this.input.models) {
+      try {
+        if (willModelHaveExtension(modelFile, modelInput.code, this.finalOptions)) {
+          const modelBaseName = extractBaseName(modelFile);
+          this.modelsWithExtensions.add(modelBaseName);
+        }
+      } catch (error) {
+        this.logger.error(`❌ Error analyzing model ${modelFile} for extensions: ${String(error)}`);
+      }
+    }
+    this.logger.info(`✅ Found ${this.modelsWithExtensions.size} models with extensions.`);
   }
 
   createDestinationDirectories() {

@@ -192,6 +192,7 @@ export async function runMigration(options: MigrateOptions): Promise<void> {
   if (!options.mixinsOnly) {
     await codemod.findModels();
     codemod.findMixinsUsedByModels();
+    codemod.findModelExtensions();
   }
 
   if (!options.modelsOnly) {
@@ -213,32 +214,7 @@ export async function runMigration(options: MigrateOptions): Promise<void> {
 
   finalOptions.allModelFiles = Object.keys(codemod.input.models);
   finalOptions.allMixinFiles = Object.keys(codemod.input.mixins);
-
-  // Pre-analyze which models will have extensions
-  // This allows imports to reference extension types instead of schema types for better type coverage
-  const modelsWithExtensions = new Set<string>();
-  if (!options.mixinsOnly) {
-    logger.info(`🔍 Analyzing which models will have extensions...`);
-    let analyzed = 0;
-    for (const [modelFile, modelInput] of codemod.input.models) {
-      try {
-        if (willModelHaveExtension(modelFile, modelInput.code, finalOptions)) {
-          const modelBaseName = extractBaseName(modelFile);
-          modelsWithExtensions.add(modelBaseName);
-        }
-        analyzed++;
-        if (analyzed % 100 === 0 && finalOptions.verbose) {
-          logger.info(`📊 Analyzed ${analyzed}/${finalOptions.allModelFiles.length} models for extensions...`);
-        }
-      } catch (error) {
-        if (finalOptions.verbose) {
-          logger.error(`❌ Error analyzing model ${modelFile} for extensions: ${String(error)}`);
-        }
-      }
-    }
-    logger.info(`✅ Found ${modelsWithExtensions.size} models with extensions.`);
-  }
-  finalOptions.modelsWithExtensions = modelsWithExtensions;
+  finalOptions.modelsWithExtensions = codemod.modelsWithExtensions;
 
   // Process intermediate models to generate trait artifacts first
   // This must be done before processing regular models that extend these intermediate models
@@ -324,7 +300,7 @@ export async function runMigration(options: MigrateOptions): Promise<void> {
   const enhancedOptions = {
     ...finalOptions,
     modelConnectedMixins: codemod.mixinsImportedByModels,
-    modelsWithExtensions,
+    modelsWithExtensions: codemod.modelsWithExtensions,
   };
 
   let processed = 0;
