@@ -2,9 +2,10 @@ import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { basename, dirname, join, resolve } from 'path';
 
 import { Codemod, FinalOptions, MigrateOptions } from './codemod.js';
-import { processIntermediateModelsToTraits, willModelHaveExtension } from './model-to-schema.js';
+import { processIntermediateModelsToTraits, toArtifacts as modelToArtifacts } from './model-to-schema.js';
+import { toArtifacts as mixinToArtifacts } from './mixin-to-schema.js';
 import type { TransformOptions } from './utils/ast-utils.js';
-import { debugLog, extractBaseName } from './utils/ast-utils.js';
+import { debugLog } from './utils/ast-utils.js';
 import { Logger } from './utils/logger.js';
 
 /**
@@ -161,6 +162,189 @@ function getRelativePathForMixin(filePath: string, options: TransformOptions): s
   return basename(filePath);
 }
 
+interface ProcessingResult {
+  processed: number;
+  skipped: number;
+  errors: number;
+}
+
+/**
+ * Write intermediate model trait artifacts to disk
+ */
+function writeIntermediateArtifacts(
+  artifacts: Array<{ type: string; code: string; suggestedFileName: string }>,
+  finalOptions: FinalOptions,
+  logger: Logger
+): void {
+  for (const artifact of artifacts) {
+    let outputDir: string;
+    let outputPath: string;
+
+    if (artifact.type === 'trait') {
+      // Trait files go to traitsDir
+      outputDir = finalOptions.traitsDir ?? './app/data/traits';
+      outputPath = join(resolve(outputDir), artifact.suggestedFileName);
+    } else if (artifact.type === 'trait-type') {
+      // Type files are colocated with their traits in traitsDir
+      outputDir = finalOptions.traitsDir ?? './app/data/traits';
+      // Generate type file name from the trait artifact name
+      const typeFileName = artifact.suggestedFileName.replace(/\.js$/, '.schema.types.ts');
+      outputPath = join(resolve(outputDir), typeFileName);
+    } else if (artifact.type === 'extension') {
+      // Extension files go to extensionsDir
+      outputDir = finalOptions.extensionsDir || './app/data/extensions';
+      outputPath = join(resolve(outputDir), artifact.suggestedFileName);
+    } else if (artifact.type === 'extension-type') {
+      // Extension type files go to extensionsDir
+      outputDir = finalOptions.extensionsDir || './app/data/extensions';
+      outputPath = join(resolve(outputDir), artifact.suggestedFileName);
+    } else if (artifact.type === 'resource-type') {
+      // Resource type interfaces go to resourcesDir
+      outputDir = finalOptions.resourcesDir || './app/data/resources';
+      outputPath = join(resolve(outputDir), artifact.suggestedFileName);
+    } else if (artifact.type === 'resource-type-stub') {
+      // Resource type stubs go to resourcesDir like other resource types
+      outputDir = finalOptions.resourcesDir || './app/data/resources';
+      outputPath = join(resolve(outputDir), artifact.suggestedFileName);
+    } else {
+      // Default fallback
+      outputDir = finalOptions.outputDir ?? './app/schemas';
+      outputPath = join(resolve(outputDir), artifact.suggestedFileName);
+    }
+
+    if (!finalOptions.dryRun) {
+      // Ensure output directory exists
+      const outputDirPath = dirname(outputPath);
+      if (!existsSync(outputDirPath)) {
+        mkdirSync(outputDirPath, { recursive: true });
+      }
+
+      writeFileSync(outputPath, artifact.code, 'utf-8');
+      if (finalOptions.verbose) {
+        logger.info(`✅ Generated intermediate ${artifact.type}: ${outputPath}`);
+      }
+    } else if (finalOptions.verbose) {
+      logger.info(`✅ Would generate intermediate ${artifact.type}: ${outputPath} (dry run)`);
+    }
+  }
+}
+
+/**
+ * Process model files and generate schema artifacts
+ */
+async function processModelFiles(
+  models: Map<string, { code: string }>,
+  enhancedOptions: TransformOptions,
+  finalOptions: FinalOptions,
+  logger: Logger
+): Promise<ProcessingResult> {
+  let processed = 0;
+  let skipped = 0;
+  let errors = 0;
+
+  for (const [filePath, modelInput] of models) {
+    try {
+      if (finalOptions.verbose) {
+        logger.debug(`🔄 Processing: ${filePath}`);
+      }
+
+      const artifacts = modelToArtifacts(filePath, modelInput.code, enhancedOptions);
+
+      if (artifacts.length > 0) {
+        processed++;
+
+        // Write each artifact to the appropriate directory
+        for (const artifact of artifacts) {
+          const { outputPath } = getArtifactOutputPath(artifact, filePath, finalOptions, false);
+
+          if (!finalOptions.dryRun) {
+            // Ensure output directory exists
+            const outputDirPath = dirname(outputPath);
+            if (!existsSync(outputDirPath)) {
+              mkdirSync(outputDirPath, { recursive: true });
+            }
+
+            writeFileSync(outputPath, artifact.code, 'utf-8');
+            if (finalOptions.verbose) {
+              logger.info(`✅ Generated ${artifact.type}: ${outputPath}`);
+            }
+          } else if (finalOptions.verbose) {
+            logger.info(`✅ Would generate ${artifact.type}: ${outputPath} (dry run)`);
+          }
+        }
+      } else {
+        skipped++;
+        if (finalOptions.verbose) {
+          logger.debug(`⏭️  Skipped (no artifacts generated): ${filePath}`);
+        }
+      }
+    } catch (error) {
+      errors++;
+      logger.error(`❌ Error processing ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  return { processed, skipped, errors };
+}
+
+/**
+ * Process mixin files and generate trait artifacts
+ */
+async function processMixinFiles(
+  mixins: Map<string, { code: string }>,
+  enhancedOptions: TransformOptions,
+  finalOptions: FinalOptions,
+  logger: Logger
+): Promise<ProcessingResult> {
+  let processed = 0;
+  let skipped = 0;
+  let errors = 0;
+
+  for (const [filePath, mixinInput] of mixins) {
+    try {
+      if (finalOptions.verbose) {
+        logger.debug(`🔄 Processing: ${filePath}`);
+      }
+
+      const artifacts = mixinToArtifacts(filePath, mixinInput.code, enhancedOptions);
+
+      if (artifacts.length > 0) {
+        processed++;
+
+        // Write each artifact to the appropriate directory
+        for (const artifact of artifacts) {
+          const { outputPath } = getArtifactOutputPath(artifact, filePath, finalOptions, true);
+
+          if (!finalOptions.dryRun) {
+            // Ensure output directory exists
+            const outputDirPath = dirname(outputPath);
+            if (!existsSync(outputDirPath)) {
+              mkdirSync(outputDirPath, { recursive: true });
+            }
+
+            writeFileSync(outputPath, artifact.code, 'utf-8');
+            if (finalOptions.verbose) {
+              logger.info(`✅ Generated ${artifact.type}: ${outputPath}`);
+            }
+          } else if (finalOptions.verbose) {
+            logger.info(`✅ Would generate ${artifact.type}: ${outputPath} (dry run)`);
+          }
+        }
+      } else {
+        skipped++;
+        if (finalOptions.verbose) {
+          logger.debug(`⏭️  Skipped (not a model mixin): ${filePath}`);
+        }
+      }
+    } catch (error) {
+      errors++;
+      logger.error(`❌ Error processing ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  return { processed, skipped, errors };
+}
+
 /**
  * Run the migration for multiple files
  */
@@ -231,57 +415,7 @@ export async function runMigration(options: MigrateOptions): Promise<void> {
       );
 
       // Write intermediate model trait artifacts
-      for (const artifact of intermediateResults.artifacts) {
-        let outputDir: string;
-        let outputPath: string;
-
-        if (artifact.type === 'trait') {
-          // Trait files go to traitsDir
-          outputDir = finalOptions.traitsDir ?? './app/data/traits';
-          outputPath = join(resolve(outputDir), artifact.suggestedFileName);
-        } else if (artifact.type === 'trait-type') {
-          // Type files are colocated with their traits in traitsDir
-          outputDir = finalOptions.traitsDir ?? './app/data/traits';
-          // Generate type file name from the trait artifact name
-          const typeFileName = artifact.suggestedFileName.replace(/\.js$/, '.schema.types.ts');
-          outputPath = join(resolve(outputDir), typeFileName);
-        } else if (artifact.type === 'extension') {
-          // Extension files go to extensionsDir
-          outputDir = finalOptions.extensionsDir || './app/data/extensions';
-          outputPath = join(resolve(outputDir), artifact.suggestedFileName);
-        } else if (artifact.type === 'extension-type') {
-          // Extension type files go to extensionsDir
-          outputDir = finalOptions.extensionsDir || './app/data/extensions';
-          outputPath = join(resolve(outputDir), artifact.suggestedFileName);
-        } else if (artifact.type === 'resource-type') {
-          // Resource type interfaces go to resourcesDir
-          outputDir = finalOptions.resourcesDir || './app/data/resources';
-          outputPath = join(resolve(outputDir), artifact.suggestedFileName);
-        } else if (artifact.type === 'resource-type-stub') {
-          // Resource type stubs go to resourcesDir like other resource types
-          outputDir = finalOptions.resourcesDir || './app/data/resources';
-          outputPath = join(resolve(outputDir), artifact.suggestedFileName);
-        } else {
-          // Default fallback
-          outputDir = finalOptions.outputDir ?? './app/schemas';
-          outputPath = join(resolve(outputDir), artifact.suggestedFileName);
-        }
-
-        if (!finalOptions.dryRun) {
-          // Ensure output directory exists
-          const outputDirPath = dirname(outputPath);
-          if (!existsSync(outputDirPath)) {
-            mkdirSync(outputDirPath, { recursive: true });
-          }
-
-          writeFileSync(outputPath, artifact.code, 'utf-8');
-          if (finalOptions.verbose) {
-            logger.info(`✅ Generated intermediate ${artifact.type}: ${outputPath}`);
-          }
-        } else if (finalOptions.verbose) {
-          logger.info(`✅ Would generate intermediate ${artifact.type}: ${outputPath} (dry run)`);
-        }
-      }
+      writeIntermediateArtifacts(intermediateResults.artifacts, finalOptions, logger);
 
       if (intermediateResults.errors.length > 0) {
         logger.error(`⚠️ Errors processing intermediate models:`);
@@ -303,99 +437,16 @@ export async function runMigration(options: MigrateOptions): Promise<void> {
     modelsWithExtensions: codemod.modelsWithExtensions,
   };
 
-  let processed = 0;
-  let skipped = 0;
-  let errors = 0;
-
   // Process model files individually using the model transform
-  for (const [filePath, modelInput] of codemod.input.models) {
-    try {
-      if (finalOptions.verbose) {
-        logger.debug(`🔄 Processing: ${filePath}`);
-      }
-
-      // Apply the model transform to get artifacts
-      const { toArtifacts } = await import('./model-to-schema.js');
-      const artifacts = toArtifacts(filePath, modelInput.code, enhancedOptions);
-
-      if (artifacts.length > 0) {
-        processed++;
-
-        // Write each artifact to the appropriate directory
-        for (const artifact of artifacts) {
-          const { outputPath } = getArtifactOutputPath(artifact, filePath, finalOptions, false);
-
-          if (!finalOptions.dryRun) {
-            // Ensure output directory exists
-            const outputDirPath = dirname(outputPath);
-            if (!existsSync(outputDirPath)) {
-              mkdirSync(outputDirPath, { recursive: true });
-            }
-
-            writeFileSync(outputPath, artifact.code, 'utf-8');
-            if (finalOptions.verbose) {
-              logger.info(`✅ Generated ${artifact.type}: ${outputPath}`);
-            }
-          } else if (finalOptions.verbose) {
-            logger.info(`✅ Would generate ${artifact.type}: ${outputPath} (dry run)`);
-          }
-        }
-      } else {
-        skipped++;
-        if (finalOptions.verbose) {
-          logger.debug(`⏭️  Skipped (no artifacts generated): ${filePath}`);
-        }
-      }
-    } catch (error) {
-      errors++;
-      logger.error(`❌ Error processing ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
+  const modelResults = await processModelFiles(codemod.input.models, enhancedOptions, finalOptions, logger);
 
   // Process mixin files (only model mixins will be transformed)
-  for (const [filePath, mixinInput] of codemod.input.mixins) {
-    try {
-      if (finalOptions.verbose) {
-        logger.debug(`🔄 Processing: ${filePath}`);
-      }
+  const mixinResults = await processMixinFiles(codemod.input.mixins, enhancedOptions, finalOptions, logger);
 
-      // Apply the mixin transform to get artifacts
-      const { toArtifacts } = await import('./mixin-to-schema.js');
-      const artifacts = toArtifacts(filePath, mixinInput.code, enhancedOptions);
-
-      if (artifacts.length > 0) {
-        processed++;
-
-        // Write each artifact to the appropriate directory
-        for (const artifact of artifacts) {
-          const { outputPath } = getArtifactOutputPath(artifact, filePath, finalOptions, true);
-
-          if (!finalOptions.dryRun) {
-            // Ensure output directory exists
-            const outputDirPath = dirname(outputPath);
-            if (!existsSync(outputDirPath)) {
-              mkdirSync(outputDirPath, { recursive: true });
-            }
-
-            writeFileSync(outputPath, artifact.code, 'utf-8');
-            if (finalOptions.verbose) {
-              logger.info(`✅ Generated ${artifact.type}: ${outputPath}`);
-            }
-          } else if (finalOptions.verbose) {
-            logger.info(`✅ Would generate ${artifact.type}: ${outputPath} (dry run)`);
-          }
-        }
-      } else {
-        skipped++;
-        if (finalOptions.verbose) {
-          logger.debug(`⏭️  Skipped (not a model mixin): ${filePath}`);
-        }
-      }
-    } catch (error) {
-      errors++;
-      logger.error(`❌ Error processing ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
+  // Aggregate results
+  const processed = modelResults.processed + mixinResults.processed;
+  const skipped = modelResults.skipped + mixinResults.skipped;
+  const errors = modelResults.errors + mixinResults.errors;
 
   logger.info(`\n✅ Migration complete!`);
   logger.info(`   📊 Processed: ${processed} files`);
