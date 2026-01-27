@@ -18,6 +18,94 @@ export default function (): never {
   );
 }
 
+interface Artifact {
+  type: string;
+  code: string;
+  suggestedFileName?: string;
+}
+
+interface ProcessingResult {
+  processed: number;
+  skipped: number;
+  errors: number;
+}
+
+type ArtifactType =
+  | 'schema'
+  | 'resource-type'
+  | 'trait'
+  | 'trait-type'
+  | 'extension'
+  | 'extension-type'
+  | 'resource-type-stub';
+
+type DirectoryKey = 'resourcesDir' | 'traitsDir' | 'extensionsDir' | 'outputDir';
+
+interface ArtifactConfig {
+  directoryKey: DirectoryKey;
+  defaultDir: string;
+  /** Whether to use mixin-based relative path calculation */
+  useRelativePath?: boolean;
+  /** File suffix to append (e.g., '.schema', '.schema.types') */
+  suffix?: string;
+  /** Whether to preserve original extension */
+  preserveExtension?: boolean;
+  /** Whether to use suggested filename directly */
+  useSuggestedFileName?: boolean;
+}
+
+const ARTIFACT_CONFIG: Record<ArtifactType, ArtifactConfig> = {
+  schema: {
+    directoryKey: 'resourcesDir',
+    defaultDir: './app/data/resources',
+    suffix: '.schema',
+    preserveExtension: true,
+  },
+  'resource-type': {
+    directoryKey: 'resourcesDir',
+    defaultDir: './app/data/resources',
+    suffix: '.schema.types',
+    preserveExtension: false,
+  },
+  trait: {
+    directoryKey: 'traitsDir',
+    defaultDir: './app/data/traits',
+    useRelativePath: true,
+    suffix: '.schema',
+    preserveExtension: true,
+  },
+  'trait-type': {
+    directoryKey: 'traitsDir',
+    defaultDir: './app/data/traits',
+    useRelativePath: true,
+    suffix: '.schema.types',
+    preserveExtension: false,
+  },
+  extension: {
+    directoryKey: 'extensionsDir',
+    defaultDir: './app/data/extensions',
+    useSuggestedFileName: true,
+  },
+  'extension-type': {
+    directoryKey: 'extensionsDir',
+    defaultDir: './app/data/extensions',
+    useSuggestedFileName: true,
+    suffix: '.schema.types',
+    preserveExtension: false,
+  },
+  'resource-type-stub': {
+    directoryKey: 'resourcesDir',
+    defaultDir: './app/data/resources',
+    useSuggestedFileName: true,
+  },
+};
+
+const DEFAULT_FALLBACK_CONFIG: ArtifactConfig = {
+  directoryKey: 'outputDir',
+  defaultDir: './app/schemas',
+  useSuggestedFileName: true,
+};
+
 /**
  * Get relative path for a file from additionalModelSources
  */
@@ -35,98 +123,6 @@ function getRelativePathFromAdditionalSources(
     }
   }
   return null;
-}
-
-/**
- * Get the output path for an artifact based on its type and source file
- */
-function getArtifactOutputPath(
-  artifact: { type: string; suggestedFileName?: string },
-  filePath: string,
-  finalOptions: TransformOptions,
-  isFromMixin = false
-): { outputDir: string; outputPath: string } {
-  let outputDir: string;
-  let outputPath: string;
-
-  if (artifact.type === 'schema') {
-    // Schema files go to resourcesDir
-    outputDir = finalOptions.resourcesDir || './app/data/resources';
-
-    // Try standard model source directory first
-    let relativePath = filePath.replace(resolve(finalOptions.modelSourceDir || './app/models'), '');
-
-    // If not in standard directory, check additionalModelSources
-    if (relativePath === filePath) {
-      const additionalPath = getRelativePathFromAdditionalSources(filePath, finalOptions.additionalModelSources);
-      if (additionalPath) {
-        relativePath = additionalPath;
-      } else if (finalOptions.generateExternalResources) {
-        // Fallback: extract just the filename for external models
-        const fileName = basename(filePath);
-        relativePath = `/${fileName}`;
-      }
-    }
-
-    // Resources should include .schema and match original source file extension
-    const extension = filePath.endsWith('.ts') ? '.ts' : '.js';
-    const outputName = relativePath.replace(/\.(js|ts)$/, `.schema${extension}`);
-    outputPath = join(resolve(outputDir), outputName);
-  } else if (artifact.type === 'resource-type') {
-    // Type files are colocated with their schemas in resourcesDir
-    outputDir = finalOptions.resourcesDir || './app/data/resources';
-
-    // Try standard model source directory first
-    let relativePath = filePath.replace(resolve(finalOptions.modelSourceDir || './app/models'), '');
-
-    // If not in standard directory, check additionalModelSources
-    if (relativePath === filePath) {
-      const additionalPath = getRelativePathFromAdditionalSources(filePath, finalOptions.additionalModelSources);
-      if (additionalPath) {
-        relativePath = additionalPath;
-      } else if (finalOptions.generateExternalResources) {
-        // Fallback: extract just the filename for external models
-        const fileName = basename(filePath);
-        relativePath = `/${fileName}`;
-      }
-    }
-
-    outputPath = join(resolve(outputDir), relativePath.replace(/\.(js|ts)$/, '.schema.types.ts'));
-  } else if (artifact.type === 'trait') {
-    // Trait files go to traitsDir
-    outputDir = finalOptions.traitsDir ?? './app/data/traits';
-    const relativePath = getRelativePathForMixin(filePath, finalOptions);
-    // Traits should include .schema and match original source file extension
-    const extension = filePath.endsWith('.ts') ? '.ts' : '.js';
-    const outputName = relativePath.replace(/\.(js|ts)$/, `.schema${extension}`);
-    outputPath = join(resolve(outputDir), outputName);
-  } else if (artifact.type === 'trait-type') {
-    // Type files are colocated with their traits in traitsDir
-    outputDir = finalOptions.traitsDir ?? './app/data/traits';
-    const relativePath = getRelativePathForMixin(filePath, finalOptions);
-    outputPath = join(resolve(outputDir), relativePath.replace(/\.(js|ts)$/, '.schema.types.ts'));
-  } else if (artifact.type === 'extension' || artifact.type === 'extension-type') {
-    // Extension files go to extensionsDir
-    outputDir = finalOptions.extensionsDir || './app/data/extensions';
-    // Use the suggested filename from the artifact instead of calculating relative path
-    // This handles external package files correctly
-    const outputName =
-      artifact.type === 'extension'
-        ? artifact.suggestedFileName || 'unknown-extension.ts'
-        : artifact.suggestedFileName?.replace(/\.(js|ts)$/, '.schema.types.ts') || 'unknown-extension-type.ts';
-    outputPath = join(resolve(outputDir), outputName);
-  } else if (artifact.type === 'resource-type-stub') {
-    // Resource type stubs go to resourcesDir like other resource types
-    debugLog(finalOptions, `RESOURCE-TYPE-STUB: redirecting to resources dir`);
-    outputDir = finalOptions.resourcesDir || './app/data/resources';
-    outputPath = join(resolve(outputDir), artifact.suggestedFileName || 'unknown-stub.ts');
-  } else {
-    // Default fallback
-    outputDir = finalOptions.outputDir ?? './app/schemas';
-    outputPath = join(resolve(outputDir), artifact.suggestedFileName || 'unknown');
-  }
-
-  return { outputDir, outputPath };
 }
 
 /**
@@ -162,178 +158,203 @@ function getRelativePathForMixin(filePath: string, options: TransformOptions): s
   return basename(filePath);
 }
 
-interface ProcessingResult {
-  processed: number;
-  skipped: number;
-  errors: number;
+/**
+ * Calculate relative path for model-based artifacts (schema, resource-type)
+ */
+function getRelativePathForModel(filePath: string, options: TransformOptions): string {
+  // Try standard model source directory first
+  let relativePath = filePath.replace(resolve(options.modelSourceDir || './app/models'), '');
+
+  // If not in standard directory, check additionalModelSources
+  if (relativePath === filePath) {
+    const additionalPath = getRelativePathFromAdditionalSources(filePath, options.additionalModelSources);
+    if (additionalPath) {
+      relativePath = additionalPath;
+    } else if (options.generateExternalResources) {
+      // Fallback: extract just the filename for external models
+      relativePath = `/${basename(filePath)}`;
+    }
+  }
+
+  return relativePath;
+}
+
+/**
+ * Build the output filename based on suffix and extension settings
+ */
+function buildOutputFileName(
+  relativePath: string,
+  sourceFilePath: string,
+  config: ArtifactConfig,
+  suggestedFileName?: string
+): string {
+  if (config.useSuggestedFileName && suggestedFileName) {
+    // For extension-type, apply suffix to suggested filename
+    if (config.suffix && !config.preserveExtension) {
+      return suggestedFileName.replace(/\.(js|ts)$/, `${config.suffix}.ts`);
+    }
+    return suggestedFileName;
+  }
+
+  if (!config.suffix) {
+    return relativePath;
+  }
+
+  if (config.preserveExtension) {
+    const extension = sourceFilePath.endsWith('.ts') ? '.ts' : '.js';
+    return relativePath.replace(/\.(js|ts)$/, `${config.suffix}${extension}`);
+  }
+
+  return relativePath.replace(/\.(js|ts)$/, `${config.suffix}.ts`);
+}
+
+/**
+ * Get the output directory for an artifact type
+ */
+function getOutputDirectory(artifactType: string, options: TransformOptions): string {
+  const config = ARTIFACT_CONFIG[artifactType as ArtifactType] ?? DEFAULT_FALLBACK_CONFIG;
+  return (options[config.directoryKey] as string | undefined) ?? config.defaultDir;
+}
+
+/**
+ * Get the output path for an artifact based on its type and source file
+ */
+function getArtifactOutputPath(
+  artifact: Artifact,
+  filePath: string,
+  options: TransformOptions
+): { outputDir: string; outputPath: string } {
+  const config = ARTIFACT_CONFIG[artifact.type as ArtifactType] ?? DEFAULT_FALLBACK_CONFIG;
+  const outputDir = getOutputDirectory(artifact.type, options);
+
+  // Debug logging for resource-type-stub
+  if (artifact.type === 'resource-type-stub') {
+    debugLog(options, `RESOURCE-TYPE-STUB: redirecting to resources dir`);
+  }
+
+  // Calculate relative path based on artifact type
+  const relativePath = config.useRelativePath
+    ? getRelativePathForMixin(filePath, options)
+    : config.useSuggestedFileName
+      ? ''
+      : getRelativePathForModel(filePath, options);
+
+  // Build the output filename
+  const outputName = config.useSuggestedFileName
+    ? buildOutputFileName('', filePath, config, artifact.suggestedFileName) || 'unknown'
+    : buildOutputFileName(relativePath, filePath, config);
+
+  const outputPath = join(resolve(outputDir), outputName);
+
+  return { outputDir, outputPath };
+}
+
+interface WriteArtifactOptions {
+  dryRun: boolean;
+  verbose: boolean;
+  logger: Logger;
+}
+
+/**
+ * Write a single artifact to disk
+ */
+function writeArtifact(
+  artifact: Artifact,
+  outputPath: string,
+  { dryRun, verbose, logger }: WriteArtifactOptions
+): void {
+  if (!dryRun) {
+    const outputDirPath = dirname(outputPath);
+    if (!existsSync(outputDirPath)) {
+      mkdirSync(outputDirPath, { recursive: true });
+    }
+    writeFileSync(outputPath, artifact.code, 'utf-8');
+    if (verbose) {
+      logger.info(`✅ Generated ${artifact.type}: ${outputPath}`);
+    }
+  } else if (verbose) {
+    logger.info(`✅ Would generate ${artifact.type}: ${outputPath} (dry run)`);
+  }
 }
 
 /**
  * Write intermediate model trait artifacts to disk
  */
-function writeIntermediateArtifacts(
-  artifacts: Array<{ type: string; code: string; suggestedFileName: string }>,
-  finalOptions: FinalOptions,
-  logger: Logger
-): void {
+function writeIntermediateArtifacts(artifacts: Artifact[], finalOptions: FinalOptions, logger: Logger): void {
   for (const artifact of artifacts) {
-    let outputDir: string;
+    // For intermediate artifacts, we use the suggested filename directly
+    const outputDir = getOutputDirectory(artifact.type, finalOptions);
     let outputPath: string;
 
-    if (artifact.type === 'trait') {
-      // Trait files go to traitsDir
-      outputDir = finalOptions.traitsDir ?? './app/data/traits';
-      outputPath = join(resolve(outputDir), artifact.suggestedFileName);
-    } else if (artifact.type === 'trait-type') {
-      // Type files are colocated with their traits in traitsDir
-      outputDir = finalOptions.traitsDir ?? './app/data/traits';
-      // Generate type file name from the trait artifact name
-      const typeFileName = artifact.suggestedFileName.replace(/\.js$/, '.schema.types.ts');
-      outputPath = join(resolve(outputDir), typeFileName);
-    } else if (artifact.type === 'extension') {
-      // Extension files go to extensionsDir
-      outputDir = finalOptions.extensionsDir || './app/data/extensions';
-      outputPath = join(resolve(outputDir), artifact.suggestedFileName);
-    } else if (artifact.type === 'extension-type') {
-      // Extension type files go to extensionsDir
-      outputDir = finalOptions.extensionsDir || './app/data/extensions';
-      outputPath = join(resolve(outputDir), artifact.suggestedFileName);
-    } else if (artifact.type === 'resource-type') {
-      // Resource type interfaces go to resourcesDir
-      outputDir = finalOptions.resourcesDir || './app/data/resources';
-      outputPath = join(resolve(outputDir), artifact.suggestedFileName);
-    } else if (artifact.type === 'resource-type-stub') {
-      // Resource type stubs go to resourcesDir like other resource types
-      outputDir = finalOptions.resourcesDir || './app/data/resources';
-      outputPath = join(resolve(outputDir), artifact.suggestedFileName);
-    } else {
-      // Default fallback
-      outputDir = finalOptions.outputDir ?? './app/schemas';
-      outputPath = join(resolve(outputDir), artifact.suggestedFileName);
+    if (!artifact.suggestedFileName) {
+      throw new Error("Couldn't get an artifact `suggestedFileName`");
     }
 
-    if (!finalOptions.dryRun) {
-      // Ensure output directory exists
-      const outputDirPath = dirname(outputPath);
-      if (!existsSync(outputDirPath)) {
-        mkdirSync(outputDirPath, { recursive: true });
-      }
-
-      writeFileSync(outputPath, artifact.code, 'utf-8');
-      if (finalOptions.verbose) {
-        logger.info(`✅ Generated intermediate ${artifact.type}: ${outputPath}`);
-      }
-    } else if (finalOptions.verbose) {
-      logger.info(`✅ Would generate intermediate ${artifact.type}: ${outputPath} (dry run)`);
+    let fileName = artifact.suggestedFileName;
+    if (artifact.type === 'trait-type') {
+      fileName = artifact.suggestedFileName.replace(/\.js$/, '.schema.types.ts');
     }
+
+    outputPath = join(resolve(outputDir), fileName);
+    writeArtifact(artifact, outputPath, {
+      dryRun: finalOptions.dryRun ?? false,
+      verbose: finalOptions.verbose ?? false,
+      logger,
+    });
   }
 }
 
+type ArtifactTransformer = (filePath: string, code: string, options: TransformOptions) => Artifact[];
+
+interface ProcessFilesOptions {
+  files: Map<string, { code: string }>;
+  transformer: ArtifactTransformer;
+  enhancedOptions: TransformOptions;
+  finalOptions: FinalOptions;
+  logger: Logger;
+  /** Message shown when a file is skipped */
+  skipMessage: string;
+}
+
 /**
- * Process model files and generate schema artifacts
+ * Generic file processor for both models and mixins
  */
-async function processModelFiles(
-  models: Map<string, { code: string }>,
-  enhancedOptions: TransformOptions,
-  finalOptions: FinalOptions,
-  logger: Logger
-): Promise<ProcessingResult> {
+async function processFiles({
+  files,
+  transformer,
+  enhancedOptions,
+  finalOptions,
+  logger,
+  skipMessage,
+}: ProcessFilesOptions): Promise<ProcessingResult> {
   let processed = 0;
   let skipped = 0;
   let errors = 0;
 
-  for (const [filePath, modelInput] of models) {
+  for (const [filePath, fileInput] of files) {
     try {
       if (finalOptions.verbose) {
         logger.debug(`🔄 Processing: ${filePath}`);
       }
 
-      const artifacts = modelToArtifacts(filePath, modelInput.code, enhancedOptions);
+      const artifacts = transformer(filePath, fileInput.code, enhancedOptions);
 
       if (artifacts.length > 0) {
         processed++;
 
-        // Write each artifact to the appropriate directory
         for (const artifact of artifacts) {
-          const { outputPath } = getArtifactOutputPath(artifact, filePath, finalOptions, false);
+          const { outputPath } = getArtifactOutputPath(artifact, filePath, finalOptions);
 
-          if (!finalOptions.dryRun) {
-            // Ensure output directory exists
-            const outputDirPath = dirname(outputPath);
-            if (!existsSync(outputDirPath)) {
-              mkdirSync(outputDirPath, { recursive: true });
-            }
-
-            writeFileSync(outputPath, artifact.code, 'utf-8');
-            if (finalOptions.verbose) {
-              logger.info(`✅ Generated ${artifact.type}: ${outputPath}`);
-            }
-          } else if (finalOptions.verbose) {
-            logger.info(`✅ Would generate ${artifact.type}: ${outputPath} (dry run)`);
-          }
+          writeArtifact(artifact, outputPath, {
+            dryRun: finalOptions.dryRun ?? false,
+            verbose: finalOptions.verbose ?? false,
+            logger,
+          });
         }
       } else {
         skipped++;
         if (finalOptions.verbose) {
-          logger.debug(`⏭️  Skipped (no artifacts generated): ${filePath}`);
-        }
-      }
-    } catch (error) {
-      errors++;
-      logger.error(`❌ Error processing ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-
-  return { processed, skipped, errors };
-}
-
-/**
- * Process mixin files and generate trait artifacts
- */
-async function processMixinFiles(
-  mixins: Map<string, { code: string }>,
-  enhancedOptions: TransformOptions,
-  finalOptions: FinalOptions,
-  logger: Logger
-): Promise<ProcessingResult> {
-  let processed = 0;
-  let skipped = 0;
-  let errors = 0;
-
-  for (const [filePath, mixinInput] of mixins) {
-    try {
-      if (finalOptions.verbose) {
-        logger.debug(`🔄 Processing: ${filePath}`);
-      }
-
-      const artifacts = mixinToArtifacts(filePath, mixinInput.code, enhancedOptions);
-
-      if (artifacts.length > 0) {
-        processed++;
-
-        // Write each artifact to the appropriate directory
-        for (const artifact of artifacts) {
-          const { outputPath } = getArtifactOutputPath(artifact, filePath, finalOptions, true);
-
-          if (!finalOptions.dryRun) {
-            // Ensure output directory exists
-            const outputDirPath = dirname(outputPath);
-            if (!existsSync(outputDirPath)) {
-              mkdirSync(outputDirPath, { recursive: true });
-            }
-
-            writeFileSync(outputPath, artifact.code, 'utf-8');
-            if (finalOptions.verbose) {
-              logger.info(`✅ Generated ${artifact.type}: ${outputPath}`);
-            }
-          } else if (finalOptions.verbose) {
-            logger.info(`✅ Would generate ${artifact.type}: ${outputPath} (dry run)`);
-          }
-        }
-      } else {
-        skipped++;
-        if (finalOptions.verbose) {
-          logger.debug(`⏭️  Skipped (not a model mixin): ${filePath}`);
+          logger.debug(`⏭️  Skipped (${skipMessage}): ${filePath}`);
         }
       }
     } catch (error) {
@@ -437,11 +458,25 @@ export async function runMigration(options: MigrateOptions): Promise<void> {
     modelsWithExtensions: codemod.modelsWithExtensions,
   };
 
-  // Process model files individually using the model transform
-  const modelResults = await processModelFiles(codemod.input.models, enhancedOptions, finalOptions, logger);
+  // Process model files
+  const modelResults = await processFiles({
+    files: codemod.input.models,
+    transformer: modelToArtifacts,
+    enhancedOptions,
+    finalOptions,
+    logger,
+    skipMessage: 'no artifacts generated',
+  });
 
-  // Process mixin files (only model mixins will be transformed)
-  const mixinResults = await processMixinFiles(codemod.input.mixins, enhancedOptions, finalOptions, logger);
+  // Process mixin files
+  const mixinResults = await processFiles({
+    files: codemod.input.mixins,
+    transformer: mixinToArtifacts,
+    enhancedOptions,
+    finalOptions,
+    logger,
+    skipMessage: 'not a model mixin',
+  });
 
   // Aggregate results
   const processed = modelResults.processed + mixinResults.processed;
