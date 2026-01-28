@@ -3,7 +3,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { processIntermediateModelsToTraits } from '../../../../packages/codemods/src/schema-migration/model-to-schema.js';
+import { processIntermediateModelsToTraits } from '../../../../packages/codemods/src/schema-migration/processors/model.js';
 import { prepareFiles } from './test-helpers.ts';
 
 describe('intermediate model processing', () => {

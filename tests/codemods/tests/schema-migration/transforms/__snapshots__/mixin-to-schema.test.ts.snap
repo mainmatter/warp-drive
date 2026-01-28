@@ -1,7 +1,7 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
 exports[`mixin-to-schema transform (artifacts) > TypeScript type artifacts > generates only trait-type artifact when mixin has only data fields > data-only trait type interface 1`] = `
-"import type { User } from 'undefined/user.schema.types';
+"import type { User } from 'test-app/data/resources/user.schema.types';
 
 export interface SimpleTrait {
 	title: string | null;
@@ -34,7 +34,7 @@ exports[`mixin-to-schema transform (artifacts) > TypeScript type artifacts > gen
 
 exports[`mixin-to-schema transform (artifacts) > TypeScript type artifacts > generates trait-type artifact with empty interface for basic mixins > basic trait type interface 1`] = `
 "import type { HasMany } from '@ember-data/model';
-import type { File } from 'undefined/file.schema.types';
+import type { File } from 'test-app/data/resources/file.schema.types';
 
 export interface FileableTrait {
 	files: HasMany<File>;
@@ -46,9 +46,9 @@ export interface FileableTrait {
 
 exports[`mixin-to-schema transform (artifacts) > TypeScript type artifacts > handles custom type mappings in mixin trait type interfaces > mixin custom type mappings interface 1`] = `
 "export interface TypedTrait {
-	id: unknown | null;
-	amount: unknown | null;
-	metadata: unknown | null;
+	id: string | null;
+	amount: number | null;
+	metadata: Record<string, unknown> | null;
 }
 "
 `;
@@ -59,6 +59,11 @@ exports[`mixin-to-schema transform (artifacts) > basic functionality > collects 
     "name": "fileableTrait",
     "suggestedFileName": "fileable.schema.js",
     "type": "trait",
+  },
+  {
+    "name": "File",
+    "suggestedFileName": "file.schema.types.ts",
+    "type": "resource-type-stub",
   },
   {
     "name": "FileableTrait",
@@ -127,7 +132,7 @@ exports[`mixin-to-schema transform (artifacts) > basic functionality > collects 
 
 exports[`mixin-to-schema transform (artifacts) > basic functionality > collects the real fileable mixin shape into trait and extension artifacts > trait-type code 1`] = `
 "import type { HasMany } from '@ember-data/model';
-import type { File } from 'undefined/file.schema.types';
+import type { File } from 'test-app/data/resources/file.schema.types';
 
 export interface FileableTrait {
 	files: HasMany<File>;
@@ -217,6 +222,11 @@ exports[`mixin-to-schema transform (artifacts) > basic functionality > produces 
     "type": "trait",
   },
   {
+    "name": "File",
+    "suggestedFileName": "file.schema.types.ts",
+    "type": "resource-type-stub",
+  },
+  {
     "name": "FileableTrait",
     "suggestedFileName": "fileable.schema.types.ts",
     "type": "trait-type",
@@ -277,8 +287,20 @@ exports[`mixin-to-schema transform (artifacts) > import validation > allows alte
     "type": "trait",
   },
   {
+    "code": "// Stub interface for File - generated automatically
+// This file will be replaced when the actual resource type is generated
+
+export interface File {
+  // Stub: properties will be populated when the actual resource type is generated
+}
+",
+    "name": "File",
+    "suggestedFileName": "file.schema.types.ts",
+    "type": "resource-type-stub",
+  },
+  {
     "code": "import type { HasMany } from '@my-custom/model';
-import type { File } from 'undefined/file.schema.types';
+import type { File } from 'test-app/data/resources/file.schema.types';
 
 export interface CustomSourceTrait {
 	name: string | null;
@@ -323,8 +345,20 @@ exports[`mixin-to-schema transform (artifacts) > import validation > correctly i
     "type": "trait",
   },
   {
+    "code": "// Stub interface for File - generated automatically
+// This file will be replaced when the actual resource type is generated
+
+export interface File {
+  // Stub: properties will be populated when the actual resource type is generated
+}
+",
+    "name": "File",
+    "suggestedFileName": "file.schema.types.ts",
+    "type": "resource-type-stub",
+  },
+  {
     "code": "import type { HasMany } from '@ember-data/model';
-import type { File } from 'undefined/file.schema.types';
+import type { File } from 'test-app/data/resources/file.schema.types';
 
 export interface RenamedMixedSourcesTrait {
 	files: HasMany<File>;
@@ -408,9 +442,33 @@ exports[`mixin-to-schema transform (artifacts) > import validation > handles ali
     "type": "trait",
   },
   {
+    "code": "// Stub interface for File - generated automatically
+// This file will be replaced when the actual resource type is generated
+
+export interface File {
+  // Stub: properties will be populated when the actual resource type is generated
+}
+",
+    "name": "File",
+    "suggestedFileName": "file.schema.types.ts",
+    "type": "resource-type-stub",
+  },
+  {
+    "code": "// Stub interface for User - generated automatically
+// This file will be replaced when the actual resource type is generated
+
+export interface User {
+  // Stub: properties will be populated when the actual resource type is generated
+}
+",
+    "name": "User",
+    "suggestedFileName": "user.schema.types.ts",
+    "type": "resource-type-stub",
+  },
+  {
     "code": "import type { HasMany } from '@ember-data/model';
-import type { File } from 'undefined/file.schema.types';
-import type { User } from 'undefined/user.schema.types';
+import type { File } from 'test-app/data/resources/file.schema.types';
+import type { User } from 'test-app/data/resources/user.schema.types';
 
 export interface AliasedImportsTrait {
 	name: string | null;
@@ -476,6 +534,10 @@ exports[`mixin-to-schema transform (artifacts) > import validation > only proces
     "type": "trait",
   },
   {
+    "name": "File",
+    "type": "resource-type-stub",
+  },
+  {
     "name": "DefaultSourceTrait",
     "type": "trait-type",
   },
@@ -504,8 +566,15 @@ exports[`mixin-to-schema transform (artifacts) > import validation > only proces
     }
   ]
 };",
+  "// Stub interface for File - generated automatically
+// This file will be replaced when the actual resource type is generated
+
+export interface File {
+  // Stub: properties will be populated when the actual resource type is generated
+}
+",
   "import type { HasMany } from '@ember-data/model';
-import type { File } from 'undefined/file.schema.types';
+import type { File } from 'test-app/data/resources/file.schema.types';
 
 export interface DefaultSourceTrait {
 	name: string | null;
@@ -544,7 +613,19 @@ exports[`mixin-to-schema transform (artifacts) > import validation > processes b
     "type": "trait",
   },
   {
-    "code": "import type { User } from 'undefined/user.schema.types';
+    "code": "// Stub interface for User - generated automatically
+// This file will be replaced when the actual resource type is generated
+
+export interface User {
+  // Stub: properties will be populated when the actual resource type is generated
+}
+",
+    "name": "User",
+    "suggestedFileName": "user.schema.types.ts",
+    "type": "resource-type-stub",
+  },
+  {
+    "code": "import type { User } from 'test-app/data/resources/user.schema.types';
 
 export interface BelongsToTrait {
 	owner: Promise<User>;
@@ -617,8 +698,20 @@ exports[`mixin-to-schema transform (artifacts) > import validation > supports @a
     "type": "trait",
   },
   {
+    "code": "// Stub interface for File - generated automatically
+// This file will be replaced when the actual resource type is generated
+
+export interface File {
+  // Stub: properties will be populated when the actual resource type is generated
+}
+",
+    "name": "File",
+    "suggestedFileName": "file.schema.types.ts",
+    "type": "resource-type-stub",
+  },
+  {
     "code": "import type { HasMany } from '@auditboard/warp-drive/v1/model';
-import type { File } from 'undefined/file.schema.types';
+import type { File } from 'test-app/data/resources/file.schema.types';
 
 export interface AuditboardSourceTrait {
 	name: string | null;
@@ -650,6 +743,11 @@ exports[`mixin-to-schema transform (artifacts) > mixin inheritance > produces tr
     "name": "fileableTrait",
     "suggestedFileName": "fileable.schema.js",
     "type": "trait",
+  },
+  {
+    "name": "File",
+    "suggestedFileName": "file.schema.types.ts",
+    "type": "resource-type-stub",
   },
   {
     "name": "FileableTrait",
@@ -687,7 +785,7 @@ exports[`mixin-to-schema transform (artifacts) > mixin inheritance > produces tr
 
 exports[`mixin-to-schema transform (artifacts) > mixin inheritance > produces trait with extended traits when using createWithMixins > inheritance type code 1`] = `
 "import type { HasMany } from '@ember-data/model';
-import type { File } from 'undefined/file.schema.types';
+import type { File } from 'test-app/data/resources/file.schema.types';
 import type { BaseModelTrait } from 'test-app/data/traits/base-model.schema.types';
 import type { TimestampTrait } from 'test-app/data/traits/timestamp.schema.types';
 
