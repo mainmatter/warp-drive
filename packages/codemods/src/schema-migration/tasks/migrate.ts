@@ -1,10 +1,10 @@
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { basename, dirname, join, resolve } from 'path';
 
-import { Codemod, FinalOptions, MigrateOptions } from '../codemod.js';
+import type { FinalOptions, MigrateOptions, TransformOptions } from '../config.js';
+import { Codemod } from '../codemod.js';
 import { processIntermediateModelsToTraits, toArtifacts as modelToArtifacts } from '../processors/model.js';
 import { toArtifacts as mixinToArtifacts } from '../processors/mixin.js';
-import type { TransformOptions } from '../utils/ast-utils.js';
 import { debugLog } from '../utils/ast-utils.js';
 import { Logger } from '../utils/logger.js';
 

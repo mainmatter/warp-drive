@@ -3,7 +3,8 @@ import { Lang, parse } from '@ast-grep/napi';
 import { existsSync } from 'fs';
 import { join } from 'path';
 
-import type { ExtractedType, PropertyInfo, TransformArtifact, TransformOptions } from '../utils/ast-utils.js';
+import type { TransformOptions } from '../config.js';
+import type { ExtractedType, PropertyInfo, TransformArtifact } from '../utils/ast-utils.js';
 import {
   createExtensionFromOriginalFile,
   createTypeArtifact,

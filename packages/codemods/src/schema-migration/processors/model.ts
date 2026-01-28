@@ -2,7 +2,8 @@ import { parse, type SgNode } from '@ast-grep/napi';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { dirname, join, resolve } from 'path';
 
-import type { SchemaField, TransformArtifact, TransformOptions } from '../utils/ast-utils.js';
+import type { TransformOptions } from '../config.js';
+import type { SchemaField, TransformArtifact } from '../utils/ast-utils.js';
 import {
   buildLegacySchemaObject,
   convertToSchemaField,

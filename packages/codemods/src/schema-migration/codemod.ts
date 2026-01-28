@@ -3,25 +3,14 @@ import { readFile } from 'fs/promises';
 import { glob } from 'glob';
 import { basename, extname, join, resolve } from 'path';
 
-import type { TransformOptions } from './utils/ast-utils.js';
+import type { FinalOptions } from './config.js';
 import { extractBaseName } from './utils/ast-utils.js';
 import { Logger } from './utils/logger.js';
 import { analyzeModelMixinUsage } from './processors/mixin-analyzer.js';
 import { willModelHaveExtension } from './processors/model.js';
 
-export interface MigrateOptions extends Partial<TransformOptions> {
-  mixinsOnly?: boolean;
-  modelsOnly?: boolean;
-  skipProcessed?: boolean;
-  inputDir?: string;
-  modelSourceDir?: string;
-  mixinSourceDir?: string;
-}
-
 type Filename = string;
 type InputFile = { path: string; code: string };
-
-export type FinalOptions = TransformOptions & MigrateOptions & { kind: 'finalized' };
 
 /**
  * Check if a file path matches any intermediate model path
