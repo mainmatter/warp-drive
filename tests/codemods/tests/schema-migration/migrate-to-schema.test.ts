@@ -648,4 +648,27 @@ export default class TestModel extends Model {
     const dataDir = join(tempDir, 'app/data');
     expect(collectFilesSnapshot(dataDir)).toMatchSnapshot();
   });
+
+  it('model discovery of non-standard ember-data imports', async () => {
+    prepareFiles(tempDir, {
+      'app/models/typed.ts': `
+import Model, { attr, belongsTo, hasMany } from '@unknown/non-standard/model-location';
+
+export default class TestModel extends Model {
+  @attr('string') declare name: string | null;
+  @belongsTo('user', { async: false, inverse: null })
+  declare owner: unknown;
+  @hasMany('tag', { async: true, inverse: null })
+  declare tags: unknown;
+}
+`,
+    });
+
+    await runMigration({
+      ...options,
+      emberDataImportSource: '@unknown/non-standard/model-location',
+    });
+    const dataDir = join(tempDir, 'app/data');
+    expect(collectFilesSnapshot(dataDir)['resources/typed.schema.ts']).toBeTruthy();
+  });
 });
