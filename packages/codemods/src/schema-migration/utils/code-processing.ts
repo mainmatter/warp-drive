@@ -3,6 +3,9 @@ import { existsSync } from 'fs';
 
 import { removeQuoteChars } from './string.js';
 
+// Re-export parseObjectLiteral from ast-helpers for backward compatibility
+export { parseObjectLiteral, parseObjectLiteralFromNode, parseObjectPropertiesFromNode } from './ast-helpers.js';
+
 /** AST node kind for identifier nodes */
 export const NODE_KIND_IDENTIFIER = 'identifier';
 
@@ -276,25 +279,6 @@ export function isTypeScriptFileByPath(filePath: string): boolean {
 }
 
 /**
- * Extract value from an AST node based on its type
- */
-export function extractValueFromNode(valueNode: SgNode): unknown {
-  const kind = valueNode.kind();
-  if (kind === NODE_KIND_STRING) {
-    return removeQuoteChars(valueNode.text());
-  } else if (kind === NODE_KIND_TRUE) {
-    return true;
-  } else if (kind === NODE_KIND_FALSE) {
-    return false;
-  } else if (kind === NODE_KIND_NUMBER) {
-    return parseFloat(valueNode.text());
-  } else {
-    // For other types, just use the text representation
-    return valueNode.text();
-  }
-}
-
-/**
  * Extract field name from a property key, removing surrounding quotes if present
  */
 export function extractFieldNameFromKey(originalKey: string): string {
@@ -305,24 +289,4 @@ export function extractFieldNameFromKey(originalKey: string): string {
     return originalKey.slice(1, -1);
   }
   return originalKey;
-}
-
-/**
- * Parse an object literal node to extract key-value pairs
- */
-export function parseObjectLiteral(objectNode: SgNode): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
-  const properties = objectNode.children().filter((child) => child.kind() === NODE_KIND_PAIR);
-
-  for (const property of properties) {
-    const keyNode = property.field('key');
-    const valueNode = property.field('value');
-    if (!keyNode || !valueNode) continue;
-
-    const key = keyNode.text();
-    const cleanKey = extractFieldNameFromKey(key);
-    result[cleanKey] = extractValueFromNode(valueNode);
-  }
-
-  return result;
 }

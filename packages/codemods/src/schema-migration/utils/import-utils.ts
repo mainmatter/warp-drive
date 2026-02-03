@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from 'fs';
 import { dirname, resolve } from 'path';
 
 import type { TransformOptions } from '../config.js';
-import { findDefaultExport, getExportedIdentifier } from './ast-helpers.js';
+import { findClassDeclaration, findDefaultExport, getExportedIdentifier } from './ast-helpers.js';
 import { debugLog } from './logging.js';
 import {
   extractBaseName,
@@ -97,6 +97,21 @@ export function generateCommonWarpDriveImports(options?: TransformOptions): {
     hasManyImport: generateWarpDriveTypeImport('HasMany', emberDataSource, options),
     storeImport: generateWarpDriveTypeImport('Store', storeImportPath, options),
   };
+}
+
+/**
+ * Generate a trait type import statement
+ * e.g., generateTraitImport('shareable', options) returns:
+ *   "type { ShareableTrait } from 'app/data/traits/shareable.schema.types'"
+ * or with default path:
+ *   "type { ShareableTrait } from '../traits/shareable.schema.types'"
+ */
+export function generateTraitImport(traitName: string, options?: TransformOptions): string {
+  const traitTypeName = `${toPascalCase(traitName)}Trait`;
+  if (options?.traitsImport) {
+    return `type { ${traitTypeName} } from '${options.traitsImport}/${traitName}.schema.types'`;
+  }
+  return `type { ${traitTypeName} } from '../traits/${traitName}.schema.types'`;
 }
 
 /**
@@ -663,34 +678,8 @@ export function isModelFile(filePath: string, source: string, options?: Transfor
       return false;
     }
 
-    // Check if it's a class declaration directly in the export
-    let classDeclaration = defaultExportNode.find({ rule: { kind: 'class_declaration' } });
-
-    // If no class declaration found in export, check if export references a class by name
-    if (!classDeclaration) {
-      debugLog(options, 'DEBUG: No class declaration found in export, checking for exported class name');
-
-      // Get the exported identifier name
-      const exportedIdentifier = getExportedIdentifier(defaultExportNode, options);
-      if (exportedIdentifier) {
-        debugLog(options, `DEBUG: Found exported identifier: ${exportedIdentifier}`);
-
-        // Look for a class declaration with this name in the root
-        classDeclaration = root.find({
-          rule: {
-            kind: 'class_declaration',
-            has: {
-              kind: 'identifier',
-              regex: exportedIdentifier,
-            },
-          },
-        });
-
-        if (classDeclaration) {
-          debugLog(options, `DEBUG: Found class declaration for exported identifier: ${exportedIdentifier}`);
-        }
-      }
-    }
+    // Use shared findClassDeclaration to find the class either in export or by reference
+    const classDeclaration = findClassDeclaration(defaultExportNode, root, options);
 
     if (!classDeclaration) {
       return false;

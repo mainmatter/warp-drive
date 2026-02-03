@@ -3,7 +3,7 @@ import { parse } from '@ast-grep/napi';
 
 import type { TransformOptions } from '../config.js';
 import { debugLog, errorLog } from './logging.js';
-import { getLanguageFromPath, indentCode, removeQuotes } from './path-utils.js';
+import { getFileExtension, getLanguageFromPath, indentCode, removeQuotes } from './path-utils.js';
 import type { TransformArtifact, PropertyInfo } from './schema-generation.js';
 import {
   EXPORT_DEFAULT_LINE_END_REGEX,

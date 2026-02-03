@@ -75,6 +75,45 @@ export function getExportedIdentifier(exportNode: SgNode, options?: TransformOpt
 }
 
 /**
+ * Find a class declaration node, either directly in the export or by looking up the exported identifier
+ * This is the single source of truth for class declaration finding across the codebase.
+ */
+export function findClassDeclaration(exportNode: SgNode, root: SgNode, options?: TransformOptions): SgNode | null {
+  // Look for a class declaration in the export
+  let classDeclaration = exportNode.find({ rule: { kind: 'class_declaration' } });
+
+  // If no class declaration found in export, check if export references a class by name
+  if (!classDeclaration) {
+    debugLog(options, 'DEBUG: No class declaration found in export, checking for exported class name');
+
+    // Get the exported identifier name
+    const exportedIdentifier = getExportedIdentifier(exportNode, options);
+    if (exportedIdentifier) {
+      debugLog(options, `DEBUG: Found exported identifier: ${exportedIdentifier}`);
+
+      // Look for a class declaration with this name in the root
+      classDeclaration = root.find({
+        rule: {
+          kind: 'class_declaration',
+          has: {
+            kind: 'identifier',
+            regex: exportedIdentifier,
+          },
+        },
+      });
+
+      if (classDeclaration) {
+        debugLog(options, `DEBUG: Found class declaration for exported identifier: ${exportedIdentifier}`);
+      }
+    } else {
+      debugLog(options, 'DEBUG: No exported identifier found');
+    }
+  }
+
+  return classDeclaration;
+}
+
+/**
  * Parse decorator arguments from a decorator node, returning both text and AST nodes
  */
 export function parseDecoratorArgumentsWithNodes(decorator: SgNode): { text: string[]; nodes: SgNode[] } {

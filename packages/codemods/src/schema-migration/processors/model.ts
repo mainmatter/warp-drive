@@ -18,13 +18,16 @@ import {
   extractTypeFromDeclaration,
   extractTypeFromDecorator,
   extractTypeFromMethod,
+  findClassDeclaration,
   findDefaultExport,
   findEmberImportLocalName,
   generateCommonWarpDriveImports,
   generateExportStatement,
+  generateTraitImport,
   generateTraitSchemaCode,
   getEmberDataImports,
   getExportedIdentifier,
+  getFileExtension,
   getLanguageFromPath,
   getMixinImports,
   getTypeScriptTypeForAttribute,
@@ -33,6 +36,7 @@ import {
   isModelFile,
   mixinNameToTraitName,
   parseDecoratorArgumentsWithNodes,
+  schemaFieldToTypeScriptType,
   toPascalCase,
   transformModelToResourceImport,
   withTransformWrapper,
@@ -40,6 +44,7 @@ import {
 import {
   FILE_EXTENSION_JS,
   FILE_EXTENSION_TS,
+  isJavaScriptFileByPath,
   NODE_KIND_ARGUMENTS,
   NODE_KIND_ARROW_FUNCTION,
   NODE_KIND_CALL_EXPRESSION,
@@ -663,7 +668,7 @@ function generateRegularModelArtifacts(
     isFragment
   );
   // Determine the file extension based on the original model file
-  const originalExtension = filePath.endsWith('.ts') ? '.ts' : '.js';
+  const originalExtension = getFileExtension(filePath);
 
   artifacts.push({
     type: 'schema',
@@ -686,33 +691,9 @@ function generateRegularModelArtifacts(
       readonly: true,
     },
     ...schemaFields.map((field) => {
-      let type: string;
-      switch (field.kind) {
-        case 'attribute':
-          type = getTypeScriptTypeForAttribute(
-            field.type || 'unknown',
-            !!(field.options && 'defaultValue' in field.options),
-            !field.options || field.options.allowNull !== false,
-            options,
-            field.options
-          ).tsType;
-          break;
-        case 'belongsTo':
-          type = getTypeScriptTypeForBelongsTo(field, options);
-          break;
-        case 'hasMany':
-          type = getTypeScriptTypeForHasMany(field, options);
-          break;
-        case 'schema-object':
-        case 'schema-array':
-        case 'array':
-          type = 'unknown';
-          break;
-      }
-
       return {
         name: field.name,
-        type,
+        type: schemaFieldToTypeScriptType(field, options),
         readonly: true,
         comment: field.comment,
       };
@@ -748,12 +729,9 @@ function generateRegularModelArtifacts(
   // Add imports for trait interfaces
   if (mixinTraits.length > 0) {
     mixinTraits.forEach((trait) => {
-      const traitTypeName = `${toPascalCase(trait)}Trait`;
       // Import trait type - use configured path or default to relative
       debugLog(options, `Generating trait import for ${trait}: traitsImport = ${options?.traitsImport}`);
-      const traitImport = options?.traitsImport
-        ? `type { ${traitTypeName} } from '${options.traitsImport}/${trait}.schema.types'`
-        : `type { ${traitTypeName} } from '../traits/${trait}.schema.types'`;
+      const traitImport = generateTraitImport(trait, options);
       schemaImports.add(traitImport);
     });
   }
@@ -911,7 +889,7 @@ function generateIntermediateModelTraitArtifacts(
   const traitCode = generateTraitSchemaCode(traitSchemaName, traitName, schemaFields, mixinTraits);
 
   // Determine the file extension based on the original model file
-  const originalExtension = filePath.endsWith('.ts') ? '.ts' : '.js';
+  const originalExtension = getFileExtension(filePath);
 
   artifacts.push({
     type: 'trait',
@@ -922,33 +900,9 @@ function generateIntermediateModelTraitArtifacts(
 
   // Generate trait type interface
   const traitFieldTypes = schemaFields.map((field) => {
-    let type: string;
-    switch (field.kind) {
-      case 'attribute':
-        type = getTypeScriptTypeForAttribute(
-          field.type || 'unknown',
-          !!(field.options && 'defaultValue' in field.options),
-          !field.options || field.options.allowNull !== false,
-          options,
-          field.options
-        ).tsType;
-        break;
-      case 'belongsTo':
-        type = getTypeScriptTypeForBelongsTo(field, options);
-        break;
-      case 'hasMany':
-        type = getTypeScriptTypeForHasMany(field, options);
-        break;
-      case 'schema-object':
-      case 'schema-array':
-      case 'array':
-        type = 'unknown';
-        break;
-    }
-
     return {
       name: field.name,
-      type,
+      type: schemaFieldToTypeScriptType(field, options),
       readonly: true,
     };
   });
@@ -1412,55 +1366,6 @@ function isClassExtendingFragment(
 }
 
 /**
- * Find a class declaration node, either directly in the export or by looking up the exported identifier
- */
-function findClassDeclaration(exportNode: SgNode, root: SgNode, options?: TransformOptions): SgNode | null {
-  // Look for a class declaration in the export
-  let classDeclaration = exportNode.find({ rule: { kind: NODE_KIND_CLASS_DECLARATION } });
-
-  // If no class declaration found in export, check if export references a class by name
-  if (!classDeclaration) {
-    debugLog(options, 'DEBUG: No class declaration found in export, checking for exported class name');
-
-    // Get the exported identifier name
-    const exportedIdentifier = getExportedIdentifier(exportNode, options);
-    if (exportedIdentifier) {
-      debugLog(options, `DEBUG: Found exported identifier: ${exportedIdentifier}`);
-
-      // Look for a class declaration with this name in the root
-      classDeclaration = root.find({
-        rule: {
-          kind: NODE_KIND_CLASS_DECLARATION,
-          has: {
-            kind: NODE_KIND_IDENTIFIER,
-            regex: exportedIdentifier,
-          },
-        },
-      });
-
-      if (classDeclaration) {
-        debugLog(options, `DEBUG: Found class declaration for exported identifier: ${exportedIdentifier}`);
-      } else {
-        debugLog(options, `DEBUG: No class declaration found for exported identifier: ${exportedIdentifier}`);
-        // Let's try a different approach - find all class declarations and check their names
-        const allClassDeclarations = root.findAll({ rule: { kind: NODE_KIND_CLASS_DECLARATION } });
-        debugLog(options, `DEBUG: Found ${allClassDeclarations.length} class declarations in file`);
-        for (const cls of allClassDeclarations) {
-          const className = cls.find({ rule: { kind: NODE_KIND_IDENTIFIER } });
-          if (className) {
-            debugLog(options, `DEBUG: Class declaration found with name: ${className.text()}`);
-          }
-        }
-      }
-    } else {
-      debugLog(options, 'DEBUG: No exported identifier found');
-    }
-  }
-
-  return classDeclaration;
-}
-
-/**
  * Check if the heritage clause extends a specific local name (either directly or via .extend())
  */
 function extendsLocalName(extendsText: string, localName: string): boolean {
@@ -1549,13 +1454,6 @@ function isModelClass(
  */
 function shouldSkipMethod(methodName: string): boolean {
   return SKIP_METHOD_NAMES.includes(methodName);
-}
-
-/**
- * Check if a file is a JavaScript file
- */
-function isJavaScriptFileByPath(filePath: string): boolean {
-  return filePath.endsWith(FILE_EXTENSION_JS);
 }
 
 /**

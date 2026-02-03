@@ -38,6 +38,7 @@ export {
   getTypeScriptTypeForAttribute,
   getTypeScriptTypeForBelongsTo,
   getTypeScriptTypeForHasMany,
+  schemaFieldToTypeScriptType,
   extractImportsFromType,
   extractTypeFromDeclaration,
   extractTypeFromDecorator,
@@ -45,12 +46,13 @@ export {
   extractJSDocTypes,
   extractTypesFromInterface,
 } from './type-utils.js';
-export type { ExtractedType } from './type-utils.js';
+export type { ExtractedType, SchemaFieldForType } from './type-utils.js';
 
 // Re-export from ast-helpers
 export {
   findExportStatements,
   findDefaultExport,
+  findClassDeclaration,
   getExportedIdentifier,
   parseDecoratorArgumentsWithNodes,
   parseObjectLiteralFromNode,
@@ -85,6 +87,7 @@ export {
   transformWarpDriveImport,
   generateWarpDriveTypeImport,
   generateCommonWarpDriveImports,
+  generateTraitImport,
   getModelImportSource,
   getResourcesImport,
   transformModelToResourceImport,

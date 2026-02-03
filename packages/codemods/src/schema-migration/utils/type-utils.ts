@@ -137,6 +137,42 @@ export function getTypeScriptTypeForHasMany(
 }
 
 /**
+ * Schema field interface for type conversion
+ */
+export interface SchemaFieldForType {
+  kind: 'attribute' | 'belongsTo' | 'hasMany' | 'schema-object' | 'schema-array' | 'array';
+  type?: string;
+  options?: Record<string, unknown>;
+}
+
+/**
+ * Convert a schema field to its TypeScript type representation
+ * Consolidates the duplicated switch-case pattern from model.ts and mixin.ts
+ */
+export function schemaFieldToTypeScriptType(field: SchemaFieldForType, options?: TransformOptions): string {
+  switch (field.kind) {
+    case 'attribute':
+      return getTypeScriptTypeForAttribute(
+        field.type || 'unknown',
+        !!(field.options && 'defaultValue' in field.options),
+        !field.options || field.options.allowNull !== false,
+        options,
+        field.options
+      ).tsType;
+    case 'belongsTo':
+      return getTypeScriptTypeForBelongsTo(field, options);
+    case 'hasMany':
+      return getTypeScriptTypeForHasMany(field, options);
+    case 'schema-object':
+    case 'schema-array':
+    case 'array':
+      return 'unknown';
+    default:
+      return 'unknown';
+  }
+}
+
+/**
  * Extract import dependencies from a TypeScript type string
  */
 export function extractImportsFromType(typeText: string, emberDataImportSource: string): string[] {

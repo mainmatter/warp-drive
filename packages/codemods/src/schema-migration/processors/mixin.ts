@@ -4,7 +4,7 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 
 import type { TransformOptions } from '../config.js';
-import type { ExtractedType, PropertyInfo, TransformArtifact } from '../utils/ast-utils.js';
+import type { ExtractedType, PropertyInfo, SchemaFieldForType, TransformArtifact } from '../utils/ast-utils.js';
 import {
   createExtensionFromOriginalFile,
   createTypeArtifact,
@@ -20,14 +20,13 @@ import {
   findDefaultExport,
   findEmberImportLocalName,
   generateExportStatement,
+  generateTraitImport,
   getEmberDataImports,
   getExportedIdentifier,
   getFieldKindFromDecorator,
   getFileExtension,
   getLanguageFromPath,
-  getTypeScriptTypeForAttribute,
-  getTypeScriptTypeForBelongsTo,
-  getTypeScriptTypeForHasMany,
+  schemaFieldToTypeScriptType,
   toPascalCase,
   withTransformWrapper,
 } from '../utils/ast-utils.js';
@@ -48,7 +47,7 @@ import {
   NODE_KIND_PAIR,
   NODE_KIND_VARIABLE_DECLARATION,
   NODE_KIND_VARIABLE_DECLARATOR,
-  parseObjectLiteral,
+  parseObjectPropertiesFromNode,
 } from '../utils/code-processing.js';
 import { mixinNameToKebab, pascalToKebab, TRAIT_SUFFIX_REGEX } from '../utils/string.js';
 
@@ -330,30 +329,9 @@ export function toArtifacts(filePath: string, source: string, options: Transform
     // Always generate trait type interface, even for empty mixins (needed for polymorphic relationships)
     // Convert trait fields to TypeScript interface properties
     const traitFieldTypes = traitFields.map((field) => {
-      let type: string;
-      switch (field.kind) {
-        case 'attribute':
-          type = getTypeScriptTypeForAttribute(
-            field.type || 'unknown',
-            !!(field.options && 'defaultValue' in field.options),
-            !field.options || field.options.allowNull !== false,
-            options,
-            field.options
-          ).tsType;
-          break;
-        case 'belongsTo':
-          type = getTypeScriptTypeForBelongsTo(field, options);
-          break;
-        case 'hasMany':
-          type = getTypeScriptTypeForHasMany(field, options);
-          break;
-        default:
-          type = 'unknown';
-      }
-
       return {
         name: field.name,
-        type,
+        type: schemaFieldToTypeScriptType(field as SchemaFieldForType, options),
         readonly: false,
       };
     });
@@ -403,17 +381,8 @@ export function toArtifacts(filePath: string, source: string, options: Transform
 
     // Add imports for extended traits
     if (extendedTraits.length > 0) {
-      console.log(options);
-      // Use traitsImport if configured, otherwise construct from appImportPrefix
-      const traitsImport = `${options.appImportPrefix}/data/traits`;
       for (const trait of extendedTraits) {
-        const extendedTraitName = `${toPascalCase(trait)}Trait`;
-        if (traitsImport) {
-          imports.add(`type { ${extendedTraitName} } from '${traitsImport}/${trait}.schema.types'`);
-        } else {
-          // Fallback to relative import if no import prefix is configured
-          imports.add(`type { ${extendedTraitName} } from './${trait}.schema.types'`);
-        }
+        imports.add(generateTraitImport(trait, options));
       }
     }
 
@@ -1098,7 +1067,7 @@ function extractTypeAndOptionsFromCallExpression(
     debugLog(options, `Second argument kind: ${optionsNode.kind()}`);
 
     // Parse the object literal to extract key-value pairs
-    const optionsObj = parseObjectLiteral(optionsNode);
+    const optionsObj = parseObjectPropertiesFromNode(optionsNode);
 
     debugLog(options, `Extracted type: ${type}, options: ${JSON.stringify(optionsObj)}`);
     return { type, options: optionsObj };
