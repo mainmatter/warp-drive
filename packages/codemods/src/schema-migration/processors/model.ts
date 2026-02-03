@@ -165,11 +165,12 @@ function analyzeModelFile(filePath: string, source: string, options: TransformOp
     // Include both the configured source and common WarpDrive sources
     const expectedSources = [
       options?.emberDataImportSource || DEFAULT_EMBER_DATA_SOURCE,
+      options?.baseModel?.import || '',
       '@auditboard/warp-drive/v1/model', // AuditBoard WarpDrive
       '@warp-drive/model', // Standard WarpDrive
       'ember-data-model-fragments/attributes', // Fragment decorator support
       'ember-data-model-fragments/fragment', // Fragment base class support
-    ];
+    ].filter(Boolean);
     const modelImportLocal = findEmberImportLocalName(root, expectedSources, options, filePath, process.cwd());
     debugLog(options, `DEBUG: Model import local: ${modelImportLocal}`);
 
@@ -1534,6 +1535,27 @@ function extractModelFields(
         options
       );
       mixinTraits.push(...intermediateTraits);
+    }
+
+    // Extract base model trait and extension
+    if (options?.baseModel?.import) {
+      const baseModelLocalName = findEmberImportLocalName(
+        root,
+        [options.baseModel.import],
+        options,
+        undefined,
+        process.cwd()
+      );
+      if (baseModelLocalName && heritageClause.text().includes(baseModelLocalName)) {
+        // Add trait if configured
+        if (options.baseModel.trait) {
+          mixinTraits.push(options.baseModel.trait);
+        }
+        // Add extension if configured
+        if (options.baseModel.extension) {
+          mixinExtensions.push(options.baseModel.extension);
+        }
+      }
     }
   }
 

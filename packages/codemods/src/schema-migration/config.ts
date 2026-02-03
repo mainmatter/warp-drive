@@ -65,6 +65,12 @@ export interface TransformOptions {
   modelsWithExtensions?: Set<string>;
   /** Generate resource schemas for external (non-local) model files */
   generateExternalResources?: boolean;
+
+  baseModel?: {
+    import: string,
+    extension?: string,
+    trait: string,
+  }
 }
 
 export interface MigrateOptions extends Partial<TransformOptions> {
