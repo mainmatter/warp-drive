@@ -38,6 +38,25 @@ import {
   withTransformWrapper,
 } from '../utils/ast-utils.js';
 import {
+  FILE_EXTENSION_JS,
+  FILE_EXTENSION_TS,
+  NODE_KIND_ARGUMENTS,
+  NODE_KIND_ARROW_FUNCTION,
+  NODE_KIND_CALL_EXPRESSION,
+  NODE_KIND_CLASS_BODY,
+  NODE_KIND_CLASS_DECLARATION,
+  NODE_KIND_CLASS_HERITAGE,
+  NODE_KIND_DECORATOR,
+  NODE_KIND_FIELD_DEFINITION,
+  NODE_KIND_FUNCTION,
+  NODE_KIND_IDENTIFIER,
+  NODE_KIND_IMPORT_CLAUSE,
+  NODE_KIND_IMPORT_STATEMENT,
+  NODE_KIND_MEMBER_EXPRESSION,
+  NODE_KIND_METHOD_DEFINITION,
+  NODE_KIND_PROPERTY_IDENTIFIER,
+} from '../utils/code-processing.js';
+import {
   MODEL_NAME_SUFFIX_REGEX,
   NAMED_TYPE_IMPORT_REGEX,
   normalizePath,
@@ -50,6 +69,26 @@ import {
   TRAILING_MODEL_SUFFIX_REGEX,
   WILDCARD_REGEX,
 } from '../utils/string.js';
+
+/** Node types to try when searching for class field definitions */
+const FIELD_DEFINITION_NODE_TYPES = [
+  NODE_KIND_FIELD_DEFINITION,
+  'public_field_definition',
+  'class_field',
+  'property_signature',
+];
+
+/** Method names that should be skipped (typically callback methods) */
+const SKIP_METHOD_NAMES = ['after'];
+
+/** Standard WarpDrive model import source */
+const WARP_DRIVE_MODEL = '@warp-drive/model';
+
+/** Fragment decorator import source */
+const FRAGMENT_DECORATOR_SOURCE = 'ember-data-model-fragments/attributes';
+
+/** Fragment base class import source */
+const FRAGMENT_BASE_SOURCE = 'ember-data-model-fragments/fragment';
 
 /**
  * Get the base EmberData Model properties and methods that should be available on all model types.
@@ -100,16 +139,16 @@ function isClassMethodSyntax(methodNode: SgNode): boolean {
   const methodKind = methodNode.kind();
 
   // Method definitions are always object methods in extensions
-  if (methodKind === 'method_definition') {
+  if (methodKind === NODE_KIND_METHOD_DEFINITION) {
     return true;
   }
 
   // Field definitions that are functions/arrow functions
-  if (methodKind === 'field_definition') {
+  if (methodKind === NODE_KIND_FIELD_DEFINITION) {
     const value = methodNode.field('value');
     if (value) {
       const valueKind = value.kind();
-      if (valueKind === 'arrow_function' || valueKind === 'function') {
+      if (valueKind === NODE_KIND_ARROW_FUNCTION || valueKind === NODE_KIND_FUNCTION) {
         return false; // These need key: value syntax in extensions
       }
     }
@@ -151,6 +190,19 @@ interface ExtractedType {
 }
 
 /**
+ * Get the list of expected model import sources based on options
+ */
+function getExpectedModelImportSources(options: TransformOptions): string[] {
+  return [
+    options?.emberDataImportSource || DEFAULT_EMBER_DATA_SOURCE,
+    options?.baseModel?.import || '',
+    WARP_DRIVE_MODEL,
+    FRAGMENT_DECORATOR_SOURCE,
+    FRAGMENT_BASE_SOURCE,
+  ].filter(Boolean);
+}
+
+/**
  * Shared function to analyze a model file and extract all necessary information
  */
 function analyzeModelFile(filePath: string, source: string, options: TransformOptions): ModelAnalysisResult {
@@ -176,21 +228,14 @@ function analyzeModelFile(filePath: string, source: string, options: TransformOp
 
     // Verify this is an ember model file we should consider
     // Include both the configured source and common WarpDrive sources
-    const expectedSources = [
-      options?.emberDataImportSource || DEFAULT_EMBER_DATA_SOURCE,
-      options?.baseModel?.import || '',
-      '@auditboard/warp-drive/v1/model', // AuditBoard WarpDrive
-      '@warp-drive/model', // Standard WarpDrive
-      'ember-data-model-fragments/attributes', // Fragment decorator support
-      'ember-data-model-fragments/fragment', // Fragment base class support
-    ].filter(Boolean);
+    const expectedSources = getExpectedModelImportSources(options);
     const modelImportLocal = findEmberImportLocalName(root, expectedSources, options, filePath, process.cwd());
     debugLog(options, `DEBUG: Model import local: ${modelImportLocal}`);
 
     // Also check specifically for Fragment base class import
     const fragmentImportLocal = findEmberImportLocalName(
       root,
-      ['ember-data-model-fragments/fragment'],
+      [FRAGMENT_BASE_SOURCE],
       options,
       filePath,
       process.cwd()
@@ -1107,7 +1152,7 @@ function getIntermediateModelLocalNames(
     // If no direct match, try to find imports that resolve to the expected intermediate model
     // This handles cases where the configured path doesn't match the actual import path
     if (!localName && fromFile && options?.intermediateModelPaths?.includes(modelPath)) {
-      const importStatements = root.findAll({ rule: { kind: 'import_statement' } });
+      const importStatements = root.findAll({ rule: { kind: NODE_KIND_IMPORT_STATEMENT } });
 
       for (const importNode of importStatements) {
         const source = importNode.field('source');
@@ -1124,7 +1169,11 @@ function getIntermediateModelLocalNames(
             // Check if the resolved path corresponds to the configured intermediate model path
             // by checking if it ends with the same pattern as the configured path
             const expectedFilePath = modelPath.split('/').slice(-1)[0]; // e.g., "-auditboard-model"
-            const possiblePaths = [`${resolvedPath}.ts`, `${resolvedPath}.js`, resolvedPath];
+            const possiblePaths = [
+              `${resolvedPath}${FILE_EXTENSION_TS}`,
+              `${resolvedPath}${FILE_EXTENSION_JS}`,
+              resolvedPath,
+            ];
 
             for (const possiblePath of possiblePaths) {
               if (existsSync(possiblePath)) {
@@ -1135,9 +1184,11 @@ function getIntermediateModelLocalNames(
                     // Verify it's actually a model file
                     const isModel = isModelFile(possiblePath, content, options);
                     if (isModel) {
-                      const importClause = importNode.children().find((child) => child.kind() === 'import_clause');
+                      const importClause = importNode
+                        .children()
+                        .find((child) => child.kind() === NODE_KIND_IMPORT_CLAUSE);
                       if (importClause) {
-                        const identifiers = importClause.findAll({ rule: { kind: 'identifier' } });
+                        const identifiers = importClause.findAll({ rule: { kind: NODE_KIND_IDENTIFIER } });
                         if (identifiers.length > 0) {
                           localName = identifiers[0].text();
                           break;
@@ -1182,7 +1233,7 @@ function getIntermediateFragmentLocalNames(root: SgNode, options: TransformOptio
 
     // If no direct match, try to find imports that match the configured path
     if (!localName) {
-      const importStatements = root.findAll({ rule: { kind: 'import_statement' } });
+      const importStatements = root.findAll({ rule: { kind: NODE_KIND_IMPORT_STATEMENT } });
 
       for (const importNode of importStatements) {
         const source = importNode.field('source');
@@ -1196,9 +1247,9 @@ function getIntermediateFragmentLocalNames(root: SgNode, options: TransformOptio
 
         // Check for direct module path match (e.g., 'codemod/models/base-fragment')
         if (normalizedSourceText === normalizedFragmentPath) {
-          const importClause = importNode.children().find((child) => child.kind() === 'import_clause');
+          const importClause = importNode.children().find((child) => child.kind() === NODE_KIND_IMPORT_CLAUSE);
           if (importClause) {
-            const identifiers = importClause.findAll({ rule: { kind: 'identifier' } });
+            const identifiers = importClause.findAll({ rule: { kind: NODE_KIND_IDENTIFIER } });
             if (identifiers.length > 0) {
               localName = identifiers[0].text();
               debugLog(
@@ -1221,7 +1272,11 @@ function getIntermediateFragmentLocalNames(root: SgNode, options: TransformOptio
             const pathSegments = normalizedFragmentPath.split('/');
 
             // Check if resolved path ends with the configured path segments
-            const possiblePaths = [`${resolvedPath}.ts`, `${resolvedPath}.js`, resolvedPath];
+            const possiblePaths = [
+              `${resolvedPath}${FILE_EXTENSION_TS}`,
+              `${resolvedPath}${FILE_EXTENSION_JS}`,
+              resolvedPath,
+            ];
 
             for (const possiblePath of possiblePaths) {
               if (existsSync(possiblePath)) {
@@ -1234,8 +1289,8 @@ function getIntermediateFragmentLocalNames(root: SgNode, options: TransformOptio
                 // Method 1: Check if it ends with the full path
                 if (
                   normalizedPossiblePath.endsWith(normalizedFragmentPath) ||
-                  normalizedPossiblePath.endsWith(`${normalizedFragmentPath}.ts`) ||
-                  normalizedPossiblePath.endsWith(`${normalizedFragmentPath}.js`)
+                  normalizedPossiblePath.endsWith(`${normalizedFragmentPath}${FILE_EXTENSION_TS}`) ||
+                  normalizedPossiblePath.endsWith(`${normalizedFragmentPath}${FILE_EXTENSION_JS}`)
                 ) {
                   matches = true;
                 }
@@ -1261,9 +1316,9 @@ function getIntermediateFragmentLocalNames(root: SgNode, options: TransformOptio
                 }
 
                 if (matches) {
-                  const importClause = importNode.children().find((child) => child.kind() === 'import_clause');
+                  const importClause = importNode.children().find((child) => child.kind() === NODE_KIND_IMPORT_CLAUSE);
                   if (importClause) {
-                    const identifiers = importClause.findAll({ rule: { kind: 'identifier' } });
+                    const identifiers = importClause.findAll({ rule: { kind: NODE_KIND_IDENTIFIER } });
                     if (identifiers.length > 0) {
                       localName = identifiers[0].text();
                       debugLog(
@@ -1306,7 +1361,7 @@ function isClassExtendingFragment(
   filePath?: string
 ): boolean {
   // Look for a class declaration in the export
-  let classDeclaration = exportNode.find({ rule: { kind: 'class_declaration' } });
+  let classDeclaration = exportNode.find({ rule: { kind: NODE_KIND_CLASS_DECLARATION } });
 
   // If no class declaration found in export, check if export references a class by name
   if (!classDeclaration) {
@@ -1314,9 +1369,9 @@ function isClassExtendingFragment(
     if (exportedIdentifier) {
       classDeclaration = root.find({
         rule: {
-          kind: 'class_declaration',
+          kind: NODE_KIND_CLASS_DECLARATION,
           has: {
-            kind: 'identifier',
+            kind: NODE_KIND_IDENTIFIER,
             regex: exportedIdentifier,
           },
         },
@@ -1329,7 +1384,7 @@ function isClassExtendingFragment(
   }
 
   // Check if the class has a heritage clause (extends)
-  const heritageClause = classDeclaration.find({ rule: { kind: 'class_heritage' } });
+  const heritageClause = classDeclaration.find({ rule: { kind: NODE_KIND_CLASS_HERITAGE } });
   if (!heritageClause) {
     return false;
   }
@@ -1357,6 +1412,62 @@ function isClassExtendingFragment(
 }
 
 /**
+ * Find a class declaration node, either directly in the export or by looking up the exported identifier
+ */
+function findClassDeclaration(exportNode: SgNode, root: SgNode, options?: TransformOptions): SgNode | null {
+  // Look for a class declaration in the export
+  let classDeclaration = exportNode.find({ rule: { kind: NODE_KIND_CLASS_DECLARATION } });
+
+  // If no class declaration found in export, check if export references a class by name
+  if (!classDeclaration) {
+    debugLog(options, 'DEBUG: No class declaration found in export, checking for exported class name');
+
+    // Get the exported identifier name
+    const exportedIdentifier = getExportedIdentifier(exportNode, options);
+    if (exportedIdentifier) {
+      debugLog(options, `DEBUG: Found exported identifier: ${exportedIdentifier}`);
+
+      // Look for a class declaration with this name in the root
+      classDeclaration = root.find({
+        rule: {
+          kind: NODE_KIND_CLASS_DECLARATION,
+          has: {
+            kind: NODE_KIND_IDENTIFIER,
+            regex: exportedIdentifier,
+          },
+        },
+      });
+
+      if (classDeclaration) {
+        debugLog(options, `DEBUG: Found class declaration for exported identifier: ${exportedIdentifier}`);
+      } else {
+        debugLog(options, `DEBUG: No class declaration found for exported identifier: ${exportedIdentifier}`);
+        // Let's try a different approach - find all class declarations and check their names
+        const allClassDeclarations = root.findAll({ rule: { kind: NODE_KIND_CLASS_DECLARATION } });
+        debugLog(options, `DEBUG: Found ${allClassDeclarations.length} class declarations in file`);
+        for (const cls of allClassDeclarations) {
+          const className = cls.find({ rule: { kind: NODE_KIND_IDENTIFIER } });
+          if (className) {
+            debugLog(options, `DEBUG: Class declaration found with name: ${className.text()}`);
+          }
+        }
+      }
+    } else {
+      debugLog(options, 'DEBUG: No exported identifier found');
+    }
+  }
+
+  return classDeclaration;
+}
+
+/**
+ * Check if the heritage clause extends a specific local name (either directly or via .extend())
+ */
+function extendsLocalName(extendsText: string, localName: string): boolean {
+  return extendsText.includes(localName) || extendsText.includes(`${localName}.extend(`);
+}
+
+/**
  * Check if a default export is a class extending a Model or Fragment
  */
 function isModelClass(
@@ -1372,47 +1483,7 @@ function isModelClass(
     `DEBUG: Checking if export extends model '${modelLocalName}' or fragment/base model '${fragmentOrBaseModelLocalName}'`
   );
 
-  // Look for a class declaration in the export
-  let classDeclaration = exportNode.find({ rule: { kind: 'class_declaration' } });
-
-  // If no class declaration found in export, check if export references a class by name
-  if (!classDeclaration) {
-    debugLog(options, 'DEBUG: No class declaration found in export, checking for exported class name');
-
-    // Get the exported identifier name
-    const exportedIdentifier = getExportedIdentifier(exportNode, options);
-    if (exportedIdentifier) {
-      debugLog(options, `DEBUG: Found exported identifier: ${exportedIdentifier}`);
-
-      // Look for a class declaration with this name in the root
-      classDeclaration = root.find({
-        rule: {
-          kind: 'class_declaration',
-          has: {
-            kind: 'identifier',
-            regex: exportedIdentifier,
-          },
-        },
-      });
-
-      if (classDeclaration) {
-        debugLog(options, `DEBUG: Found class declaration for exported identifier: ${exportedIdentifier}`);
-      } else {
-        debugLog(options, `DEBUG: No class declaration found for exported identifier: ${exportedIdentifier}`);
-        // Let's try a different approach - find all class declarations and check their names
-        const allClassDeclarations = root.findAll({ rule: { kind: 'class_declaration' } });
-        debugLog(options, `DEBUG: Found ${allClassDeclarations.length} class declarations in file`);
-        for (const cls of allClassDeclarations) {
-          const className = cls.find({ rule: { kind: 'identifier' } });
-          if (className) {
-            debugLog(options, `DEBUG: Class declaration found with name: ${className.text()}`);
-          }
-        }
-      }
-    } else {
-      debugLog(options, 'DEBUG: No exported identifier found');
-    }
-  }
+  const classDeclaration = findClassDeclaration(exportNode, root, options);
 
   if (!classDeclaration) {
     debugLog(options, 'DEBUG: No class declaration found in export or by name');
@@ -1429,7 +1500,7 @@ function isModelClass(
   );
 
   // Check if the class has a heritage clause (extends)
-  const heritageClause = classDeclaration.find({ rule: { kind: 'class_heritage' } });
+  const heritageClause = classDeclaration.find({ rule: { kind: NODE_KIND_CLASS_HERITAGE } });
   if (!heritageClause) {
     debugLog(options, 'DEBUG: No class_heritage found in class');
     return false;
@@ -1440,21 +1511,12 @@ function isModelClass(
   debugLog(options, `DEBUG: Heritage clause: ${extendsText}`);
 
   // Check for direct Model extension
-  let isDirectExtension = false;
-  let isMixinExtension = false;
-
-  if (modelLocalName) {
-    isDirectExtension = extendsText.includes(modelLocalName);
-    isMixinExtension = extendsText.includes(`${modelLocalName}.extend(`);
-  }
+  const isDirectExtension = modelLocalName ? extendsLocalName(extendsText, modelLocalName) : false;
 
   // Check for custom base model or Fragment extension
-  let isBaseModelExtension = false;
-  if (fragmentOrBaseModelLocalName) {
-    isBaseModelExtension =
-      extendsText.includes(fragmentOrBaseModelLocalName) ||
-      extendsText.includes(`${fragmentOrBaseModelLocalName}.extend(`);
-  }
+  const isBaseModelExtension = fragmentOrBaseModelLocalName
+    ? extendsLocalName(extendsText, fragmentOrBaseModelLocalName)
+    : false;
 
   // Check for chained extends through configured intermediate classes
   let isChainedExtension = false;
@@ -1476,10 +1538,60 @@ function isModelClass(
 
   debugLog(
     options,
-    `DEBUG: Direct extension: ${isDirectExtension}, Mixin extension: ${isMixinExtension}, Base model extension: ${isBaseModelExtension}, Chained extension: ${isChainedExtension}`
+    `DEBUG: Direct extension: ${isDirectExtension}, Base model extension: ${isBaseModelExtension}, Chained extension: ${isChainedExtension}`
   );
 
-  return isDirectExtension || isMixinExtension || isBaseModelExtension || isChainedExtension;
+  return isDirectExtension || isBaseModelExtension || isChainedExtension;
+}
+
+/**
+ * Check if a method should be skipped based on its name
+ */
+function shouldSkipMethod(methodName: string): boolean {
+  return SKIP_METHOD_NAMES.includes(methodName);
+}
+
+/**
+ * Check if a file is a JavaScript file
+ */
+function isJavaScriptFileByPath(filePath: string): boolean {
+  return filePath.endsWith(FILE_EXTENSION_JS);
+}
+
+/**
+ * Find property definitions in the class body by trying different AST node types
+ */
+function findPropertyDefinitions(classBody: SgNode, options?: TransformOptions): SgNode[] {
+  for (const nodeType of FIELD_DEFINITION_NODE_TYPES) {
+    try {
+      const propertyDefinitions = classBody.findAll({ rule: { kind: nodeType } });
+      if (propertyDefinitions.length > 0) {
+        debugLog(options, `DEBUG: Found ${propertyDefinitions.length} properties using node type: ${nodeType}`);
+        return propertyDefinitions;
+      }
+    } catch {
+      // Node type not supported in this AST, continue to next
+      debugLog(options, `DEBUG: Node type ${nodeType} not supported, trying next...`);
+    }
+  }
+  return [];
+}
+
+/**
+ * Find method definitions in the class body, excluding callback methods
+ */
+function findMethodDefinitions(classBody: SgNode): SgNode[] {
+  return classBody.children().filter((child) => {
+    if (child.kind() !== NODE_KIND_METHOD_DEFINITION) {
+      return false;
+    }
+
+    // Check if this is likely a callback method from a memberAction call
+    const nameNode = child.field('name');
+    const methodName = nameNode?.text() || '';
+
+    return !shouldSkipMethod(methodName);
+  });
 }
 
 /**
@@ -1515,10 +1627,10 @@ function extractModelFields(
   const mixinExtensions: string[] = [];
 
   // Check if this is a JavaScript file - skip type extraction for JS files
-  const isJavaScriptFile = filePath.endsWith('.js');
+  const isJavaScriptFile = isJavaScriptFileByPath(filePath);
 
   // Find the class declaration
-  const classDeclaration = root.find({ rule: { kind: 'class_declaration' } });
+  const classDeclaration = root.find({ rule: { kind: NODE_KIND_CLASS_DECLARATION } });
   if (!classDeclaration) {
     debugLog(options, 'DEBUG: No class declaration found in extractModelFields');
     return { schemaFields, extensionProperties, mixinTraits, mixinExtensions };
@@ -1526,7 +1638,7 @@ function extractModelFields(
   debugLog(options, 'DEBUG: Found class declaration in extractModelFields');
 
   // Extract mixin information from extends clause
-  const heritageClause = classDeclaration.find({ rule: { kind: 'class_heritage' } });
+  const heritageClause = classDeclaration.find({ rule: { kind: NODE_KIND_CLASS_HERITAGE } });
   if (heritageClause) {
     // Get mixin imports to map local names to file paths
     const mixinImports = getMixinImports(root, options);
@@ -1566,7 +1678,7 @@ function extractModelFields(
   }
 
   // Get the class body
-  const classBody = classDeclaration.find({ rule: { kind: 'class_body' } });
+  const classBody = classDeclaration.find({ rule: { kind: NODE_KIND_CLASS_BODY } });
   if (!classBody) {
     debugLog(options, 'DEBUG: No class body found');
     return { schemaFields, extensionProperties, mixinTraits, mixinExtensions };
@@ -1586,40 +1698,11 @@ function extractModelFields(
     }
 
     // Try different possible AST node types for class fields with error handling
-    const nodeTypes = ['field_definition', 'public_field_definition', 'class_field', 'property_signature'];
-
-    for (const nodeType of nodeTypes) {
-      try {
-        propertyDefinitions = classBody.findAll({ rule: { kind: nodeType } });
-        if (propertyDefinitions.length > 0) {
-          debugLog(options, `DEBUG: Found ${propertyDefinitions.length} properties using node type: ${nodeType}`);
-          break;
-        }
-      } catch {
-        // Node type not supported in this AST, continue to next
-        debugLog(options, `DEBUG: Node type ${nodeType} not supported, trying next...`);
-      }
-    }
+    propertyDefinitions = findPropertyDefinitions(classBody, options);
 
     // Only get method definitions that are direct children of the class body
     // This prevents extracting methods from nested object literals (like memberAction calls)
-    methodDefinitions = classBody.children().filter((child) => {
-      if (child.kind() !== 'method_definition') {
-        return false;
-      }
-
-      // Check if this is likely a callback method from a memberAction call
-      // These are typically named "after" and are short methods
-      const nameNode = child.field('name');
-      const methodName = nameNode?.text() || '';
-
-      if (methodName === 'after') {
-        // This is likely a callback method - exclude it
-        return false;
-      }
-
-      return true;
-    });
+    methodDefinitions = findMethodDefinitions(classBody);
 
     debugLog(options, `DEBUG: Found ${propertyDefinitions.length} properties and ${methodDefinitions.length} methods`);
     debugLog(options, `DEBUG: Class body text: ${classBody.text().substring(0, 200)}...`);
@@ -1638,7 +1721,7 @@ function extractModelFields(
   for (const property of propertyDefinitions) {
     // For field_definition nodes, the name is in a property_identifier child
     // We want the LAST property_identifier, as the first ones might be from decorator arguments
-    const nameNodes = property.findAll({ rule: { kind: 'property_identifier' } });
+    const nameNodes = property.findAll({ rule: { kind: NODE_KIND_PROPERTY_IDENTIFIER } });
     const nameNode = nameNodes[nameNodes.length - 1]; // Get the last one
 
     if (!nameNode) {
@@ -1659,7 +1742,7 @@ function extractModelFields(
     }
 
     // Check if this property has a decorator
-    const decorators = property.findAll({ rule: { kind: 'decorator' } });
+    const decorators = property.findAll({ rule: { kind: NODE_KIND_DECORATOR } });
     let isSchemaField = false;
 
     for (const decorator of decorators) {
@@ -1733,7 +1816,7 @@ function extractModelFields(
       const sibling = siblings[i];
       if (!sibling) continue;
 
-      if (sibling.kind() === 'decorator') {
+      if (sibling.kind() === NODE_KIND_DECORATOR) {
         decorators.unshift(sibling.text()); // Add to beginning to maintain order
       } else if (sibling.text().trim() !== '') {
         // Stop at non-empty, non-decorator content
@@ -1873,11 +1956,11 @@ function extractMixinTraits(
   // Find the .extend() call using AST
   const extendCall = heritageClause.find({
     rule: {
-      kind: 'call_expression',
+      kind: NODE_KIND_CALL_EXPRESSION,
       has: {
-        kind: 'member_expression',
+        kind: NODE_KIND_MEMBER_EXPRESSION,
         has: {
-          kind: 'property_identifier',
+          kind: NODE_KIND_PROPERTY_IDENTIFIER,
           regex: 'extend',
         },
       },
@@ -1886,10 +1969,10 @@ function extractMixinTraits(
 
   if (extendCall) {
     // Get the arguments of the .extend() call
-    const argumentsNode = extendCall.find({ rule: { kind: 'arguments' } });
+    const argumentsNode = extendCall.find({ rule: { kind: NODE_KIND_ARGUMENTS } });
     if (argumentsNode) {
       // Find all identifier nodes within the arguments (these are the mixin names)
-      const mixinIdentifiers = argumentsNode.findAll({ rule: { kind: 'identifier' } });
+      const mixinIdentifiers = argumentsNode.findAll({ rule: { kind: NODE_KIND_IDENTIFIER } });
 
       for (const identifierNode of mixinIdentifiers) {
         const mixinName = identifierNode.text();

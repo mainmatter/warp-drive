@@ -1,7 +1,3 @@
-// ============================================================================
-// Regex Constants - File Extensions
-// ============================================================================
-
 /** Matches .js or .ts file extensions at end of string */
 export const FILE_EXTENSION_REGEX = /\.(js|ts)$/;
 
@@ -13,10 +9,6 @@ export const FILENAME_WITH_EXTENSION_REGEX = /\/[^/]+\.(js|ts)$/;
 
 /** Matches .schema.types suffix */
 export const SCHEMA_TYPES_SUFFIX_REGEX = /\.schema\.types$/;
-
-// ============================================================================
-// Regex Constants - Case Conversion
-// ============================================================================
 
 /** Matches kebab-case pattern to convert to camelCase (e.g., -a -> A) */
 export const KEBAB_TO_CAMEL_REGEX = /-([a-z])/g;
@@ -39,19 +31,11 @@ export const CAMEL_CASE_BOUNDARY_REGEX = /([a-z])([A-Z])/g;
 /** Matches leading hyphen */
 export const LEADING_HYPHEN_REGEX = /^-/;
 
-// ============================================================================
-// Regex Constants - Quotes
-// ============================================================================
-
 /** Matches surrounding quotes (single or double) */
 export const SURROUNDING_QUOTES_REGEX = /^['"]|['"]$/g;
 
 /** Matches quote characters (single or double) */
 export const QUOTE_CHARS_REGEX = /['"]/g;
-
-// ============================================================================
-// Regex Constants - Import Statements
-// ============================================================================
 
 /** Matches single-quoted import statements */
 export const SINGLE_QUOTE_IMPORT_REGEX = /import\s+.*?from\s+'[^']+'/g;
@@ -86,10 +70,6 @@ export const RELATIVE_TYPE_IMPORT_REGEX = /import\s+type\s+(\w+)\s+from\s+['"](\
 /** Matches named type import statement: import type { X } from './path' */
 export const NAMED_TYPE_IMPORT_REGEX = /import\s+type\s+\{\s*(\w+)\s*\}\s+from\s+['"](\.\/.+?)['"];?/;
 
-// ============================================================================
-// Regex Constants - Suffix Patterns
-// ============================================================================
-
 /** Matches 'Mixin' suffix at end of string */
 export const MIXIN_SUFFIX_REGEX = /Mixin$/;
 
@@ -101,10 +81,6 @@ export const MODEL_NAME_SUFFIX_REGEX = /-?model$/i;
 
 /** Matches trailing -model or model suffix */
 export const TRAILING_MODEL_SUFFIX_REGEX = /-?model$/;
-
-// ============================================================================
-// Regex Constants - Path Patterns
-// ============================================================================
 
 /** Matches wildcard character for pattern matching */
 export const WILDCARD_REGEX = /\*/g;
@@ -124,10 +100,6 @@ export const SAME_DIR_PREFIX_REGEX = /^\.\//;
 /** Matches leading '../' for parent-directory imports */
 export const PARENT_DIR_PREFIX_REGEX = /^\.\.\//;
 
-// ============================================================================
-// Regex Constants - Export Patterns
-// ============================================================================
-
 /** Matches 'export ' keyword at start of string */
 export const EXPORT_KEYWORD_REGEX = /^export\s+/;
 
@@ -137,16 +109,8 @@ export const EXPORT_DEFAULT_LINE_END_REGEX = /export\s+default\s*$/gm;
 /** Matches 'export' at end of line */
 export const EXPORT_LINE_END_REGEX = /export\s*$/gm;
 
-// ============================================================================
-// Regex Constants - JSDoc
-// ============================================================================
-
 /** Matches JSDoc comments at end of string, allowing whitespace and newlines */
 export const JSDOC_COMMENT_REGEX = /\/\*\*[\s\S]*?\*\/\s*$/;
-
-// ============================================================================
-// Helper Functions - Case Conversion
-// ============================================================================
 
 /**
  * Capitalizes the first letter of a matched word (for use with replace callback)
@@ -193,10 +157,6 @@ export function mixinNameToKebab(mixinName: string): string {
   const baseName = mixinName.replace(MIXIN_SUFFIX_REGEX, '');
   return pascalToKebab(baseName);
 }
-
-// ============================================================================
-// Helper Functions - String Manipulation
-// ============================================================================
 
 /**
  * Remove file extension (.js or .ts) from a path

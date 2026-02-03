@@ -31,7 +31,81 @@ import {
   toPascalCase,
   withTransformWrapper,
 } from '../utils/ast-utils.js';
+import {
+  extractFieldNameFromKey,
+  findObjectArgument,
+  findStringArgument,
+  NODE_KIND_ARROW_FUNCTION,
+  NODE_KIND_AS_EXPRESSION,
+  NODE_KIND_CALL_EXPRESSION,
+  NODE_KIND_COMPUTED_PROPERTY_NAME,
+  NODE_KIND_FUNCTION,
+  NODE_KIND_IDENTIFIER,
+  NODE_KIND_LEXICAL_DECLARATION,
+  NODE_KIND_MEMBER_EXPRESSION,
+  NODE_KIND_METHOD_DEFINITION,
+  NODE_KIND_OBJECT,
+  NODE_KIND_PAIR,
+  NODE_KIND_VARIABLE_DECLARATION,
+  NODE_KIND_VARIABLE_DECLARATOR,
+  parseObjectLiteral,
+} from '../utils/code-processing.js';
 import { mixinNameToKebab, pascalToKebab, TRAIT_SUFFIX_REGEX } from '../utils/string.js';
+
+/** Mixin.create() method name */
+const MIXIN_METHOD_CREATE = 'create';
+
+/** Mixin.createWithMixins() method name */
+const MIXIN_METHOD_CREATE_WITH_MIXINS = 'createWithMixins';
+
+/** Async keyword with trailing space */
+const KEYWORD_ASYNC = 'async ';
+
+/** Generator function pattern */
+const KEYWORD_GENERATOR_FUNCTION = 'function*';
+
+/** Generator asterisk pattern */
+const KEYWORD_GENERATOR_ASTERISK = '*';
+
+/** Getter keyword */
+const KEYWORD_GET = 'get';
+
+/** Setter keyword */
+const KEYWORD_SET = 'set';
+
+/**
+ * Checks if the property key represents a getter or setter
+ */
+function isGetterOrSetterKey(keyText: string): boolean {
+  return keyText === KEYWORD_GET || keyText === KEYWORD_SET;
+}
+
+/**
+ * Checks if the property value is an async method or generator function
+ */
+function isAsyncOrGeneratorMethod(value: SgNode, propertyText: string): boolean {
+  const valueKind = value.kind();
+  if (valueKind !== NODE_KIND_FUNCTION && valueKind !== NODE_KIND_ARROW_FUNCTION) {
+    return false;
+  }
+  return (
+    propertyText.includes(KEYWORD_ASYNC) ||
+    propertyText.includes(KEYWORD_GENERATOR_FUNCTION) ||
+    propertyText.includes(KEYWORD_GENERATOR_ASTERISK)
+  );
+}
+
+/**
+ * Checks if this is a computed property with a function value
+ */
+function isComputedPropertyWithFunction(property: SgNode): boolean {
+  const key = property.field('key');
+  if (key?.kind() !== NODE_KIND_COMPUTED_PROPERTY_NAME) {
+    return false;
+  }
+  const value = property.field('value');
+  return value?.kind() === NODE_KIND_FUNCTION;
+}
 
 /**
  * Determines if an AST node represents object method syntax that doesn't need key: value format
@@ -41,42 +115,26 @@ function isObjectMethodSyntax(property: SgNode): boolean {
   const propertyKind = property.kind();
 
   // Method definitions: methodName() { ... }
-  if (propertyKind === 'method_definition') {
+  if (propertyKind === NODE_KIND_METHOD_DEFINITION) {
     return true;
   }
 
   // Check for getter/setter: get/set propertyName() { ... }
-  if (propertyKind === 'pair') {
+  if (propertyKind === NODE_KIND_PAIR) {
     const key = property.field('key');
-    if (key) {
-      const keyText = key.text();
-      // Getters and setters
-      if (keyText === 'get' || keyText === 'set') {
-        return true;
-      }
+    if (key && isGetterOrSetterKey(key.text())) {
+      return true;
     }
 
     // Check for async methods: async methodName() { ... }
     const value = property.field('value');
-    if (value) {
-      const valueKind = value.kind();
-      if (valueKind === 'function' || valueKind === 'arrow_function') {
-        // Check if preceded by async keyword or if it's a generator function
-        const propertyText = property.text();
-        if (propertyText.includes('async ') || propertyText.includes('function*') || propertyText.includes('*')) {
-          return true;
-        }
-      }
+    if (value && isAsyncOrGeneratorMethod(value, property.text())) {
+      return true;
     }
-  }
 
-  // Check for computed property names: [computedKey]: value or [computedKey]() { ... }
-  if (propertyKind === 'pair') {
-    const key = property.field('key');
-    if (key?.kind() === 'computed_property_name') {
-      // For computed properties, we need key: value syntax unless it's a method
-      const value = property.field('value');
-      return value?.kind() === 'function';
+    // Check for computed property names: [computedKey]: value or [computedKey]() { ... }
+    if (isComputedPropertyWithFunction(property)) {
+      return true;
     }
   }
 
@@ -487,16 +545,23 @@ function handleMixinTransform(root: SgNode, source: string, filePath: string, op
 }
 
 /**
+ * Check if a method name is a valid Mixin creation method
+ */
+function isMixinCreateMethod(methodName: string): boolean {
+  return methodName === MIXIN_METHOD_CREATE || methodName === MIXIN_METHOD_CREATE_WITH_MIXINS;
+}
+
+/**
  * Check if a default export is directly calling Mixin.create() or Mixin.createWithMixins()
  */
 function isDirectMixinCreateExport(exportNode: SgNode, mixinLocalName: string): boolean {
   // Look for a call expression in the export
-  const callExpression = exportNode.find({ rule: { kind: 'call_expression' } });
+  const callExpression = exportNode.find({ rule: { kind: NODE_KIND_CALL_EXPRESSION } });
   if (!callExpression) return false;
 
   // Check if the function being called is a member expression (e.g., Mixin.create or Mixin.createWithMixins)
   const memberExpression = callExpression.field('function');
-  if (!memberExpression || memberExpression.kind() !== 'member_expression') return false;
+  if (!memberExpression || memberExpression.kind() !== NODE_KIND_MEMBER_EXPRESSION) return false;
 
   // Check if the object is our mixin local name
   const object = memberExpression.field('object');
@@ -506,8 +571,34 @@ function isDirectMixinCreateExport(exportNode: SgNode, mixinLocalName: string): 
   const property = memberExpression.field('property');
   if (!property) return false;
 
-  const propertyName = property.text();
-  return propertyName === 'create' || propertyName === 'createWithMixins';
+  return isMixinCreateMethod(property.text());
+}
+
+/**
+ * Unwrap TypeScript type cast expressions (e.g., "as unknown as SomeType")
+ */
+function unwrapTypeCastExpressions(node: SgNode | null): SgNode | null {
+  let current = node;
+  while (current && current.kind() === NODE_KIND_AS_EXPRESSION) {
+    const children = current.children();
+    const expression = children[0];
+    if (expression) {
+      current = expression;
+    } else {
+      break;
+    }
+  }
+  return current;
+}
+
+/**
+ * Find all variable declarations in the AST (both var and const/let)
+ */
+function findAllVariableDeclarations(root: SgNode): SgNode[] {
+  return [
+    ...root.findAll({ rule: { kind: NODE_KIND_VARIABLE_DECLARATION } }),
+    ...root.findAll({ rule: { kind: NODE_KIND_LEXICAL_DECLARATION } }),
+  ];
 }
 
 /** Check whether an identifier is initialized by `<localMixin>.create(...)` */
@@ -519,11 +610,7 @@ function isIdentifierInitializedByMixinCreate(
 ): boolean {
   debugLog(options, `Checking if identifier '${ident}' is initialized by '${localMixin}.create()'`);
 
-  // Find all variable declarations (both var and const/let)
-  const variableDeclarations = [
-    ...root.findAll({ rule: { kind: 'variable_declaration' } }),
-    ...root.findAll({ rule: { kind: 'lexical_declaration' } }),
-  ];
+  const variableDeclarations = findAllVariableDeclarations(root);
 
   debugLog(options, `Found ${variableDeclarations.length} variable declarations`);
 
@@ -531,7 +618,7 @@ function isIdentifierInitializedByMixinCreate(
     debugLog(options, `Variable declaration: ${varDecl.text()}`);
 
     // Get all declarators in this declaration
-    const declarators = varDecl.findAll({ rule: { kind: 'variable_declarator' } });
+    const declarators = varDecl.findAll({ rule: { kind: NODE_KIND_VARIABLE_DECLARATOR } });
 
     for (const declarator of declarators) {
       // Check if the name matches our identifier
@@ -541,21 +628,9 @@ function isIdentifierInitializedByMixinCreate(
       debugLog(options, `Found matching variable declarator for '${ident}'`);
 
       // Check if the value is a call expression (or wrapped in a type cast)
-      let valueNode = declarator.field('value');
+      const valueNode = unwrapTypeCastExpressions(declarator.field('value'));
 
-      // Handle TypeScript type casts like "as unknown as SomeType" (potentially nested)
-      while (valueNode && valueNode.kind() === 'as_expression') {
-        // The first child should be the expression before the "as"
-        const children = valueNode.children();
-        const expression = children[0]; // First child is usually the expression
-        if (expression) {
-          valueNode = expression;
-        } else {
-          break;
-        }
-      }
-
-      if (!valueNode || valueNode.kind() !== 'call_expression') {
+      if (!valueNode || valueNode.kind() !== NODE_KIND_CALL_EXPRESSION) {
         debugLog(options, `Value is not a call expression: ${valueNode?.kind()}`);
         continue;
       }
@@ -564,7 +639,7 @@ function isIdentifierInitializedByMixinCreate(
 
       // Check if it's calling localMixin.create or localMixin.createWithMixins
       const functionNode = valueNode.field('function');
-      if (!functionNode || functionNode.kind() !== 'member_expression') {
+      if (!functionNode || functionNode.kind() !== NODE_KIND_MEMBER_EXPRESSION) {
         debugLog(options, `Function is not a member expression: ${functionNode?.kind()}`);
         continue;
       }
@@ -579,7 +654,7 @@ function isIdentifierInitializedByMixinCreate(
 
       debugLog(options, `Member expression: ${object.text()}.${property.text()}`);
 
-      if (object.text() === localMixin && (property.text() === 'create' || property.text() === 'createWithMixins')) {
+      if (object.text() === localMixin && isMixinCreateMethod(property.text())) {
         debugLog(options, `Found matching ${localMixin}.create() call!`);
         return true;
       }
@@ -592,9 +667,91 @@ function isIdentifierInitializedByMixinCreate(
 }
 
 /**
- * Check if the mixin contains non-trait values (functions, computed properties, etc.)
- * that would need to become extensions rather than traits
+ * Check if a call is a Mixin.create() or Mixin.createWithMixins() call
  */
+function isMixinCreateCall(call: SgNode, mixinLocalName: string): boolean {
+  const fn = call.field('function');
+  if (!fn || fn.kind() !== NODE_KIND_MEMBER_EXPRESSION) return false;
+
+  const object = fn.field('object');
+  const property = fn.field('property');
+  return object?.text() === mixinLocalName && isMixinCreateMethod(property?.text() ?? '');
+}
+
+/**
+ * Find all Mixin.create() and Mixin.createWithMixins() calls in the AST
+ */
+function findMixinCreateCalls(root: SgNode, mixinLocalName: string): SgNode[] {
+  return root
+    .findAll({ rule: { kind: NODE_KIND_CALL_EXPRESSION } })
+    .filter((call) => isMixinCreateCall(call, mixinLocalName));
+}
+
+/**
+ * Extract extended traits from createWithMixins arguments
+ */
+function extractExtendedTraitsFromArgs(
+  args: SgNode,
+  extendedTraits: string[],
+  mixinName: string,
+  options?: TransformOptions
+): void {
+  const argNodes = args.children();
+  if (argNodes.length <= 1) return;
+
+  // Process all arguments except the last one (which is the object literal)
+  for (let i = 0; i < argNodes.length - 1; i++) {
+    const arg = argNodes[i];
+    if (arg && arg.kind() === NODE_KIND_IDENTIFIER) {
+      const extendedMixinName = arg.text();
+      const traitName = mixinNameToKebab(extendedMixinName);
+      if (!extendedTraits.includes(traitName)) {
+        extendedTraits.push(traitName);
+        debugLog(options, `Found extended trait: ${traitName} from mixin ${mixinName}`);
+      }
+    }
+  }
+}
+
+/**
+ * Get direct properties (pairs and method definitions) from an object literal
+ */
+function getObjectLiteralProperties(objectLiteral: SgNode): SgNode[] {
+  return objectLiteral
+    .children()
+    .filter((child) => child.kind() === NODE_KIND_PAIR || child.kind() === NODE_KIND_METHOD_DEFINITION);
+}
+
+/**
+ * Find object literals in arguments
+ */
+function findObjectLiteralsInArgs(args: SgNode): SgNode[] {
+  return args.children().filter((child) => child.kind() === NODE_KIND_OBJECT);
+}
+
+/**
+ * Process extended traits from all Mixin.create calls
+ */
+function processExtendedTraitsFromCalls(
+  mixinCreateCalls: SgNode[],
+  extendedTraits: string[],
+  mixinName: string,
+  options?: TransformOptions
+): void {
+  for (const call of mixinCreateCalls) {
+    const fn = call.field('function');
+    if (!fn || fn.kind() !== NODE_KIND_MEMBER_EXPRESSION) continue;
+
+    const property = fn.field('property');
+    if (property?.text() === MIXIN_METHOD_CREATE_WITH_MIXINS) {
+      const args = call.field('arguments');
+      if (args) {
+        extractExtendedTraitsFromArgs(args, extendedTraits, mixinName, options);
+      }
+    }
+  }
+}
+
 /**
  * Type information extracted from AST
  */
@@ -635,48 +792,12 @@ function extractTraitFields(
   }
 
   // Find calls like <mixinLocalName>.create({ ... }) or .createWithMixins
-  const mixinCreateCalls = root.findAll({ rule: { kind: 'call_expression' } }).filter((call) => {
-    const fn = call.field('function');
-    if (!fn || fn.kind() !== 'member_expression') return false;
-    const object = fn.field('object');
-    const property = fn.field('property');
-    return (
-      object?.text() === mixinLocalName && (property?.text() === 'create' || property?.text() === 'createWithMixins')
-    );
-  });
+  const mixinCreateCalls = findMixinCreateCalls(root, mixinLocalName);
 
   debugLog(options, `Found ${mixinCreateCalls.length} mixin create calls`);
 
   // Extract extended traits from createWithMixins calls
-  for (const call of mixinCreateCalls) {
-    const fn = call.field('function');
-    if (!fn || fn.kind() !== 'member_expression') continue;
-
-    const property = fn.field('property');
-    if (property?.text() === 'createWithMixins') {
-      const args = call.field('arguments');
-      if (args) {
-        // The first arguments are the mixins to extend, the last is the object literal
-        const argNodes = args.children();
-        if (argNodes.length > 1) {
-          // Process all arguments except the last one (which is the object literal)
-          for (let i = 0; i < argNodes.length - 1; i++) {
-            const arg = argNodes[i];
-            if (arg && arg.kind() === 'identifier') {
-              const extendedMixinName = arg.text();
-              // Convert mixin name to dasherized trait name
-              // Remove "Mixin" suffix if present, then convert to dasherized format
-              const traitName = mixinNameToKebab(extendedMixinName);
-              if (!extendedTraits.includes(traitName)) {
-                extendedTraits.push(traitName);
-                debugLog(options, `Found extended trait: ${traitName} from mixin ${mixinName}`);
-              }
-            }
-          }
-        }
-      }
-    }
-  }
+  processExtendedTraitsFromCalls(mixinCreateCalls, extendedTraits, mixinName, options);
 
   if (mixinCreateCalls.length === 0) {
     return { traitFields, extensionProperties, extendedTraits };
@@ -696,7 +817,7 @@ function extractTraitFields(
 
   // Find the object literal argument - use the last one in case there are mixin references first
   const argChildren = args.children();
-  const objectLiterals = argChildren.filter((child) => child.kind() === 'object');
+  const objectLiterals = findObjectLiteralsInArgs(args);
   const objectLiteral = objectLiterals[objectLiterals.length - 1]; // Get the last object literal
   if (!objectLiteral) {
     debugLog(options, 'No object literal found in mixin create arguments');
@@ -715,7 +836,7 @@ function extractTraitFields(
         options,
         `  Arg ${i}: kind=${arg.kind()}, text='${arg.text()}', isObjectLiteral=${arg === objectLiteral}`
       );
-      if (arg.kind() === 'identifier' && arg !== objectLiteral) {
+      if (arg.kind() === NODE_KIND_IDENTIFIER && arg !== objectLiteral) {
         const extendedMixinName = arg.text();
         // Convert mixin name to dasherized trait name
         const traitName = mixinNameToKebab(extendedMixinName);
@@ -730,9 +851,7 @@ function extractTraitFields(
   debugLog(options, `Found object literal with ${objectLiteral.children().length} children`);
 
   // Get direct properties of the object literal - both pairs and method definitions
-  const directProperties = objectLiteral
-    .children()
-    .filter((child) => child.kind() === 'pair' || child.kind() === 'method_definition');
+  const directProperties = getObjectLiteralProperties(objectLiteral);
 
   debugLog(options, `Found ${directProperties.length} direct properties`);
 
@@ -743,7 +862,7 @@ function extractTraitFields(
     let originalKey: string;
     let typeInfo: ExtractedType | undefined;
 
-    if (property.kind() === 'method_definition') {
+    if (property.kind() === NODE_KIND_METHOD_DEFINITION) {
       // Handle method definitions: complexMethod() { ... }
       keyNode = property.field('name');
       valueNode = property; // The entire method definition is the "value"
@@ -768,13 +887,7 @@ function extractTraitFields(
       originalKey = keyNode?.text() || '';
 
       // Extract the actual property name (remove quotes if present)
-      if (originalKey.startsWith('"') && originalKey.endsWith('"')) {
-        fieldName = originalKey.slice(1, -1);
-      } else if (originalKey.startsWith("'") && originalKey.endsWith("'")) {
-        fieldName = originalKey.slice(1, -1);
-      } else {
-        fieldName = originalKey;
-      }
+      fieldName = extractFieldNameFromKey(originalKey);
 
       // Try to get type from associated interface first
       if (interfaceTypes.has(fieldName)) {
@@ -790,7 +903,7 @@ function extractTraitFields(
     debugLog(options, `Processing property: ${fieldName}`);
 
     // Check if this is an EmberData trait field (only applies to regular pairs)
-    if (property.kind() === 'pair' && valueNode.kind() === 'call_expression') {
+    if (property.kind() === NODE_KIND_PAIR && valueNode.kind() === NODE_KIND_CALL_EXPRESSION) {
       const functionNode = valueNode.field('function');
       if (functionNode) {
         const functionName = functionNode.text();
@@ -968,13 +1081,7 @@ function extractTypeAndOptionsFromCallExpression(
     }
 
     // Extract the type from the first argument (should be a string)
-    let type: string | null = null;
-    for (const arg of argNodes) {
-      if (arg.kind() === 'string') {
-        type = arg.text().slice(1, -1); // Remove quotes
-        break;
-      }
-    }
+    const type = findStringArgument(argNodes);
 
     if (!type) {
       debugLog(options, 'No string type argument found in call expression');
@@ -982,59 +1089,16 @@ function extractTypeAndOptionsFromCallExpression(
     }
 
     // Find the actual object argument (skip whitespace and other non-content nodes)
-    let optionsNode: SgNode | null = null;
-    for (const arg of argNodes) {
-      if (arg.kind() === 'object') {
-        optionsNode = arg;
-        break;
-      }
-    }
+    const optionsNode = findObjectArgument(argNodes);
 
     if (!optionsNode) {
       debugLog(options, 'No object argument found in call expression');
       return { type, options: {} };
     }
     debugLog(options, `Second argument kind: ${optionsNode.kind()}`);
-    if (optionsNode.kind() !== 'object') {
-      debugLog(options, 'Second argument is not an object');
-      return null;
-    }
 
     // Parse the object literal to extract key-value pairs
-    const optionsObj: Record<string, unknown> = {};
-    const properties = optionsNode.children().filter((child) => child.kind() === 'pair');
-
-    for (const property of properties) {
-      const keyNode = property.field('key');
-      const valueNode = property.field('value');
-      if (!keyNode || !valueNode) continue;
-
-      const key = keyNode.text();
-      // Remove quotes from key if present
-      const cleanKey =
-        key.startsWith('"') && key.endsWith('"')
-          ? key.slice(1, -1)
-          : key.startsWith("'") && key.endsWith("'")
-            ? key.slice(1, -1)
-            : key;
-
-      // Extract the value based on its type
-      let value: unknown;
-      if (valueNode.kind() === 'string') {
-        value = valueNode.text().slice(1, -1); // Remove quotes
-      } else if (valueNode.kind() === 'true') {
-        value = true;
-      } else if (valueNode.kind() === 'false') {
-        value = false;
-      } else if (valueNode.kind() === 'number') {
-        value = parseFloat(valueNode.text());
-      } else {
-        // For other types, just use the text representation
-        value = valueNode.text();
-      }
-
-      optionsObj[cleanKey] = value;
-    }
+    const optionsObj = parseObjectLiteral(optionsNode);
 
     debugLog(options, `Extracted type: ${type}, options: ${JSON.stringify(optionsObj)}`);
     return { type, options: optionsObj };

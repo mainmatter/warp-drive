@@ -1,0 +1,328 @@
+import type { SgNode } from '@ast-grep/napi';
+import { existsSync } from 'fs';
+
+import { removeQuoteChars } from './string.js';
+
+/** AST node kind for identifier nodes */
+export const NODE_KIND_IDENTIFIER = 'identifier';
+
+/** AST node kind for string literals */
+export const NODE_KIND_STRING = 'string';
+
+/** AST node kind for object literals */
+export const NODE_KIND_OBJECT = 'object';
+
+/** AST node kind for call expressions */
+export const NODE_KIND_CALL_EXPRESSION = 'call_expression';
+
+/** AST node kind for member expressions */
+export const NODE_KIND_MEMBER_EXPRESSION = 'member_expression';
+
+/** AST node kind for import statements */
+export const NODE_KIND_IMPORT_STATEMENT = 'import_statement';
+
+/** AST node kind for import clauses */
+export const NODE_KIND_IMPORT_CLAUSE = 'import_clause';
+
+/** AST node kind for decorator nodes */
+export const NODE_KIND_DECORATOR = 'decorator';
+
+/** AST node kind for function expressions */
+export const NODE_KIND_FUNCTION = 'function';
+
+/** AST node kind for arrow function expressions */
+export const NODE_KIND_ARROW_FUNCTION = 'arrow_function';
+
+/** AST node kind for method definitions */
+export const NODE_KIND_METHOD_DEFINITION = 'method_definition';
+
+/** AST node kind for function arguments */
+export const NODE_KIND_ARGUMENTS = 'arguments';
+
+/** AST node kind for named imports */
+export const NODE_KIND_NAMED_IMPORTS = 'named_imports';
+
+/** AST node kind for import specifier */
+export const NODE_KIND_IMPORT_SPECIFIER = 'import_specifier';
+
+/** AST node kind for property identifiers */
+export const NODE_KIND_PROPERTY_IDENTIFIER = 'property_identifier';
+
+/** AST node kind for pair (key-value) nodes */
+export const NODE_KIND_PAIR = 'pair';
+
+/** AST node kind for computed property names */
+export const NODE_KIND_COMPUTED_PROPERTY_NAME = 'computed_property_name';
+
+/** AST node kind for as expressions (TypeScript type casts) */
+export const NODE_KIND_AS_EXPRESSION = 'as_expression';
+
+/** AST node kind for variable declarations */
+export const NODE_KIND_VARIABLE_DECLARATION = 'variable_declaration';
+
+/** AST node kind for lexical declarations (const/let) */
+export const NODE_KIND_LEXICAL_DECLARATION = 'lexical_declaration';
+
+/** AST node kind for variable declarators */
+export const NODE_KIND_VARIABLE_DECLARATOR = 'variable_declarator';
+
+/** AST node kind for boolean true */
+export const NODE_KIND_TRUE = 'true';
+
+/** AST node kind for boolean false */
+export const NODE_KIND_FALSE = 'false';
+
+/** AST node kind for number literals */
+export const NODE_KIND_NUMBER = 'number';
+
+/** AST node kind for class declarations */
+export const NODE_KIND_CLASS_DECLARATION = 'class_declaration';
+
+/** AST node kind for class body */
+export const NODE_KIND_CLASS_BODY = 'class_body';
+
+/** AST node kind for class heritage (extends clause) */
+export const NODE_KIND_CLASS_HERITAGE = 'class_heritage';
+
+/** AST node kind for field definitions */
+export const NODE_KIND_FIELD_DEFINITION = 'field_definition';
+
+/** TypeScript file extension */
+export const FILE_EXTENSION_TS = '.ts';
+
+/** JavaScript file extension */
+export const FILE_EXTENSION_JS = '.js';
+
+/** Regex to convert glob pattern wildcards to regex */
+export const GLOB_WILDCARD_REGEX = /\*/g;
+
+/**
+ * Find import statements in the AST root
+ */
+export function findImportStatements(root: SgNode): SgNode[] {
+  return root.findAll({ rule: { kind: NODE_KIND_IMPORT_STATEMENT } });
+}
+
+/**
+ * Extract the source path from an import statement
+ */
+export function getImportSourcePath(importStatement: SgNode): string | null {
+  const sourceNode = importStatement.find({ rule: { kind: NODE_KIND_STRING } });
+  if (!sourceNode) {
+    return null;
+  }
+  return removeQuoteChars(sourceNode.text());
+}
+
+/**
+ * Get the import clause from an import statement
+ */
+export function getImportClause(importStatement: SgNode): SgNode | null {
+  return importStatement.find({ rule: { kind: NODE_KIND_IMPORT_CLAUSE } });
+}
+
+/**
+ * Extract identifier name from import clause (for default imports)
+ */
+export function getDefaultImportIdentifier(importClause: SgNode): string | null {
+  const identifier = importClause.find({ rule: { kind: NODE_KIND_IDENTIFIER } });
+  return identifier ? identifier.text() : null;
+}
+
+/**
+ * Extract named import identifiers from import clause
+ */
+export function getNamedImportIdentifiers(importClause: SgNode): string[] {
+  const namedImports = importClause.find({ rule: { kind: NODE_KIND_NAMED_IMPORTS } });
+  if (!namedImports) {
+    return [];
+  }
+
+  const specifiers = namedImports.findAll({ rule: { kind: NODE_KIND_IMPORT_SPECIFIER } });
+  const identifiers: string[] = [];
+
+  for (const specifier of specifiers) {
+    const name = specifier.find({ rule: { kind: NODE_KIND_IDENTIFIER } });
+    if (name) {
+      identifiers.push(name.text());
+    }
+  }
+
+  return identifiers;
+}
+
+/**
+ * Find all decorator nodes in the AST
+ */
+export function findDecorators(root: SgNode): SgNode[] {
+  return root.findAll({ rule: { kind: NODE_KIND_DECORATOR } });
+}
+
+/**
+ * Find all call expressions in the AST
+ */
+export function findCallExpressions(root: SgNode): SgNode[] {
+  return root.findAll({ rule: { kind: NODE_KIND_CALL_EXPRESSION } });
+}
+
+/**
+ * Get the arguments node from a call expression
+ */
+export function getCallArguments(callNode: SgNode): SgNode | null {
+  return callNode.find({ rule: { kind: NODE_KIND_ARGUMENTS } });
+}
+
+/**
+ * Find string argument nodes within an arguments node
+ */
+export function findStringArguments(argumentsNode: SgNode): SgNode[] {
+  return argumentsNode.findAll({ rule: { kind: NODE_KIND_STRING } });
+}
+
+/**
+ * Find object argument nodes within an arguments node
+ */
+export function findObjectArguments(argumentsNode: SgNode): SgNode[] {
+  return argumentsNode.findAll({ rule: { kind: NODE_KIND_OBJECT } });
+}
+
+/**
+ * Find all identifiers within an arguments node
+ */
+export function findIdentifiersInArguments(argumentsNode: SgNode): SgNode[] {
+  return argumentsNode.findAll({ rule: { kind: NODE_KIND_IDENTIFIER } });
+}
+
+/**
+ * Find the first string argument in a list of nodes
+ */
+export function findStringArgument(argNodes: SgNode[]): string | null {
+  for (const arg of argNodes) {
+    if (arg.kind() === NODE_KIND_STRING) {
+      return removeQuoteChars(arg.text());
+    }
+  }
+  return null;
+}
+
+/**
+ * Find the first object argument in a list of nodes
+ */
+export function findObjectArgument(argNodes: SgNode[]): SgNode | null {
+  for (const arg of argNodes) {
+    if (arg.kind() === NODE_KIND_OBJECT) {
+      return arg;
+    }
+  }
+  return null;
+}
+
+/**
+ * Try to find a file with common extensions (.js, .ts)
+ */
+export function findFileWithExtensions(basePath: string): string | null {
+  const possiblePaths = [basePath, `${basePath}${FILE_EXTENSION_JS}`, `${basePath}${FILE_EXTENSION_TS}`];
+
+  for (const path of possiblePaths) {
+    if (existsSync(path)) {
+      return path;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Convert a glob pattern to a regex pattern
+ */
+export function globPatternToRegex(pattern: string): RegExp {
+  return new RegExp('^' + pattern.replace(GLOB_WILDCARD_REGEX, '(.*)') + '$');
+}
+
+/**
+ * Check if a node is inside a decorator
+ */
+export function isInsideDecorator(node: SgNode): boolean {
+  const parentDecorator = node.parent()?.parent();
+  return parentDecorator !== null && parentDecorator !== undefined && parentDecorator.kind() === NODE_KIND_DECORATOR;
+}
+
+/**
+ * Check if an import statement is a type-only import
+ */
+export function isTypeOnlyImport(importText: string): boolean {
+  return importText.includes('import type');
+}
+
+/**
+ * Check if an object literal text contains polymorphic: true
+ */
+export function isPolymorphicRelationship(objectText: string): boolean {
+  return objectText.includes('polymorphic') && objectText.includes('true');
+}
+
+/**
+ * Determine if a file is JavaScript based on its path extension
+ */
+export function isJavaScriptFileByPath(filePath: string): boolean {
+  return filePath.endsWith(FILE_EXTENSION_JS);
+}
+
+/**
+ * Determine if a file is TypeScript based on its path extension
+ */
+export function isTypeScriptFileByPath(filePath: string): boolean {
+  return filePath.endsWith(FILE_EXTENSION_TS);
+}
+
+/**
+ * Extract value from an AST node based on its type
+ */
+export function extractValueFromNode(valueNode: SgNode): unknown {
+  const kind = valueNode.kind();
+  if (kind === NODE_KIND_STRING) {
+    return removeQuoteChars(valueNode.text());
+  } else if (kind === NODE_KIND_TRUE) {
+    return true;
+  } else if (kind === NODE_KIND_FALSE) {
+    return false;
+  } else if (kind === NODE_KIND_NUMBER) {
+    return parseFloat(valueNode.text());
+  } else {
+    // For other types, just use the text representation
+    return valueNode.text();
+  }
+}
+
+/**
+ * Extract field name from a property key, removing surrounding quotes if present
+ */
+export function extractFieldNameFromKey(originalKey: string): string {
+  if (
+    (originalKey.startsWith('"') && originalKey.endsWith('"')) ||
+    (originalKey.startsWith("'") && originalKey.endsWith("'"))
+  ) {
+    return originalKey.slice(1, -1);
+  }
+  return originalKey;
+}
+
+/**
+ * Parse an object literal node to extract key-value pairs
+ */
+export function parseObjectLiteral(objectNode: SgNode): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  const properties = objectNode.children().filter((child) => child.kind() === NODE_KIND_PAIR);
+
+  for (const property of properties) {
+    const keyNode = property.field('key');
+    const valueNode = property.field('value');
+    if (!keyNode || !valueNode) continue;
+
+    const key = keyNode.text();
+    const cleanKey = extractFieldNameFromKey(key);
+    result[cleanKey] = extractValueFromNode(valueNode);
+  }
+
+  return result;
+}

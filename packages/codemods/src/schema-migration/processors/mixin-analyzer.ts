@@ -1,9 +1,175 @@
-import { parse } from '@ast-grep/napi';
-import { existsSync } from 'fs';
+import { parse, type SgNode } from '@ast-grep/napi';
 import { dirname, resolve } from 'path';
 import { Logger } from '../utils/logger.js';
-import { Codemod, FinalOptions } from '../codemod.js';
+import { Codemod } from '../codemod.js';
+import { FinalOptions } from '../config.js';
 import { extractBaseName, getLanguageFromPath } from '../utils/ast-utils.js';
+import {
+  findCallExpressions,
+  findDecorators,
+  findFileWithExtensions,
+  findIdentifiersInArguments,
+  findImportStatements,
+  findObjectArguments,
+  findStringArguments,
+  getCallArguments,
+  getDefaultImportIdentifier,
+  getImportClause,
+  getImportSourcePath,
+  getNamedImportIdentifiers,
+  globPatternToRegex,
+  isInsideDecorator,
+  isPolymorphicRelationship,
+  isTypeOnlyImport,
+  NODE_KIND_CALL_EXPRESSION,
+  NODE_KIND_MEMBER_EXPRESSION,
+  NODE_KIND_PROPERTY_IDENTIFIER,
+} from '../utils/code-processing.js';
+import { removeQuoteChars } from '../utils/string.js';
+
+/** The 'extend' method name used in Ember's class extension pattern */
+const EXTEND_METHOD_NAME = 'extend';
+
+/** The 'belongsTo' relationship decorator/function name */
+const BELONGS_TO_NAME = 'belongsTo';
+
+/**
+ * Build a map of imported identifiers to their source paths
+ */
+function buildImportMap(root: SgNode, logger: Logger): Map<string, string> {
+  const importMap = new Map<string, string>();
+  const importStatements = findImportStatements(root);
+
+  for (const importStatement of importStatements) {
+    const importPath = getImportSourcePath(importStatement);
+    if (!importPath) {
+      logger.debug(`[DEBUG] Import statement has no string literal: ${importStatement.text()}`);
+      continue;
+    }
+
+    logger.debug(`[DEBUG] Processing import: ${importPath}`);
+
+    const importClause = getImportClause(importStatement);
+    if (!importClause) {
+      logger.debug(`[DEBUG] Import has no clause: ${importStatement.text()}`);
+      continue;
+    }
+
+    // Handle default imports (import Foo from 'path')
+    const defaultIdentifier = getDefaultImportIdentifier(importClause);
+    if (defaultIdentifier) {
+      logger.debug(`[DEBUG] Found default import: ${defaultIdentifier} from ${importPath}`);
+      importMap.set(defaultIdentifier, importPath);
+      continue;
+    }
+
+    // Handle named imports (import { Foo, Bar } from 'path')
+    const namedIdentifiers = getNamedImportIdentifiers(importClause);
+    if (namedIdentifiers.length > 0) {
+      logger.debug(`[DEBUG] Found ${namedIdentifiers.length} named imports from ${importPath}`);
+      for (const identifierName of namedIdentifiers) {
+        logger.debug(`[DEBUG] Named import: ${identifierName} from ${importPath}`);
+        importMap.set(identifierName, importPath);
+      }
+    }
+  }
+
+  return importMap;
+}
+
+/**
+ * Find all .extend() call expressions in the AST
+ */
+function findExtendCalls(root: SgNode): SgNode[] {
+  return root.findAll({
+    rule: {
+      kind: NODE_KIND_CALL_EXPRESSION,
+      has: {
+        kind: NODE_KIND_MEMBER_EXPRESSION,
+        has: {
+          field: 'property',
+          kind: NODE_KIND_PROPERTY_IDENTIFIER,
+          regex: EXTEND_METHOD_NAME,
+        },
+      },
+    },
+  });
+}
+
+/**
+ * Resolve a relative import path
+ */
+function resolveRelativeImport(
+  importPath: string,
+  currentFilePath: string,
+  mixinSourceDir: string,
+  logger: Logger
+): string | null {
+  const resolvedPath = resolve(dirname(currentFilePath), importPath);
+  const foundPath = findFileWithExtensions(resolvedPath);
+
+  if (foundPath && foundPath.startsWith(mixinSourceDir)) {
+    return foundPath;
+  }
+
+  return null;
+}
+
+/**
+ * Resolve an external import using additional mixin sources
+ */
+function resolveExternalImport(
+  importPath: string,
+  additionalSources: Array<{ pattern: string; dir: string }>,
+  logger: Logger
+): string | null {
+  logger.debug(
+    `📋 Trying to resolve external import '${importPath}' using ${additionalSources.length} additional sources`
+  );
+
+  for (const source of additionalSources) {
+    const patternRegex = globPatternToRegex(source.pattern);
+
+    logger.debug(`📋 Testing pattern '${source.pattern}' (regex: ${patternRegex}) against import '${importPath}'`);
+
+    const match = importPath.match(patternRegex);
+    if (match) {
+      // Replace the matched wildcards in the directory path
+      let targetDir = source.dir;
+      for (let i = 1; i < match.length; i++) {
+        targetDir = targetDir.replace('*', match[i]);
+      }
+
+      logger.debug(`📋 Trying to resolve external mixin '${importPath}' to '${targetDir}'`);
+
+      const foundPath = findFileWithExtensions(targetDir);
+      if (foundPath) {
+        logger.debug(`📋 Successfully resolved '${importPath}' to '${foundPath}'`);
+        return foundPath;
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Resolve a local module import (e.g., 'my-app/mixins/foo')
+ */
+function resolveLocalModuleImport(importPath: string, mixinSourceDir: string, logger: Logger): string | null {
+  // For local module imports like 'my-app/mixins/foo', extract just the last part
+  const localMixinPath = importPath.includes('/mixins/') ? importPath.split('/mixins/')[1] : importPath;
+
+  const localResolvedPath = resolve(mixinSourceDir, localMixinPath);
+  const foundPath = findFileWithExtensions(localResolvedPath);
+
+  if (foundPath) {
+    logger.debug(`📋 Successfully resolved local mixin '${importPath}' to '${foundPath}'`);
+    return foundPath;
+  }
+
+  return null;
+}
 
 /**
  * Analyze which mixins are actually used by models (directly or transitively)
@@ -131,55 +297,10 @@ function extractMixinImports(source: string, filePath: string, logger: Logger, f
     const ast = parse(lang, source);
     const root = ast.root();
 
-    // Create a map of import identifiers to their source paths
-    const importMap = new Map<string, string>();
+    // Build import map
+    const importMap = buildImportMap(root, logger);
 
-    // Find all import statements
-    const importStatements = root.findAll({ rule: { kind: 'import_statement' } });
-    logger.debug(`[DEBUG] extractMixinImports for ${filePath}: found ${importStatements.length} import statements`);
-
-    for (const importStatement of importStatements) {
-      const sourceNode = importStatement.find({ rule: { kind: 'string' } });
-      if (!sourceNode) {
-        logger.debug(`[DEBUG] Import statement has no string literal: ${importStatement.text()}`);
-        continue;
-      }
-
-      const importPath = sourceNode.text().replace(/['"]/g, '');
-      logger.debug(`[DEBUG] Processing import: ${importPath}`);
-
-      // Find the imported identifier(s)
-      const importClause = importStatement.find({ rule: { kind: 'import_clause' } });
-      if (!importClause) {
-        logger.debug(`[DEBUG] Import has no clause: ${importStatement.text()}`);
-        continue;
-      }
-
-      // Handle default imports (import Foo from 'path')
-      const identifier = importClause.find({ rule: { kind: 'identifier' } });
-      if (identifier) {
-        const identifierName = identifier.text();
-        logger.debug(`[DEBUG] Found default import: ${identifierName} from ${importPath}`);
-        importMap.set(identifierName, importPath);
-        continue;
-      }
-
-      // Handle named imports (import { Foo, Bar } from 'path')
-      const namedImports = importClause.find({ rule: { kind: 'named_imports' } });
-      if (namedImports) {
-        const specifiers = namedImports.findAll({ rule: { kind: 'import_specifier' } });
-        logger.debug(`[DEBUG] Found ${specifiers.length} named imports from ${importPath}`);
-        for (const specifier of specifiers) {
-          const name = specifier.find({ rule: { kind: 'identifier' } });
-          if (name) {
-            const identifierName = name.text();
-            logger.debug(`[DEBUG] Named import: ${identifierName} from ${importPath}`);
-            importMap.set(identifierName, importPath);
-          }
-        }
-      }
-    }
-
+    logger.debug(`[DEBUG] extractMixinImports for ${filePath}: found ${importMap.size} imports`);
     logger.debug(`[DEBUG] Built import map with ${importMap.size} entries:`);
     for (const [identifier, importPath] of importMap) {
       logger.debug(`[DEBUG]   ${identifier} -> ${importPath}`);
@@ -195,32 +316,19 @@ function extractMixinImports(source: string, filePath: string, logger: Logger, f
     }
 
     // Look for .extend() calls and check if they use any imported mixins
-    const extendCalls = root.findAll({
-      rule: {
-        kind: 'call_expression',
-        has: {
-          kind: 'member_expression',
-          has: {
-            field: 'property',
-            kind: 'property_identifier',
-            regex: 'extend',
-          },
-        },
-      },
-    });
-
+    const extendCalls = findExtendCalls(root);
     logger.debug(`[DEBUG] Found ${extendCalls.length} extend calls`);
 
     for (const extendCall of extendCalls) {
       logger.debug(`[DEBUG] Extend call: ${extendCall.text()}`);
-      const args = extendCall.find({ rule: { kind: 'arguments' } });
+      const args = getCallArguments(extendCall);
       if (!args) {
         logger.debug(`[DEBUG] Extend call has no arguments`);
         continue;
       }
 
       // Find identifiers in the extend arguments
-      const identifiers = args.findAll({ rule: { kind: 'identifier' } });
+      const identifiers = findIdentifiersInArguments(args);
       logger.debug(`[DEBUG] Found ${identifiers.length} identifiers in extend args`);
 
       for (const identifier of identifiers) {
@@ -260,79 +368,28 @@ function resolveMixinPath(
   options: FinalOptions
 ): string | null {
   try {
+    const mixinSourceDir = resolve(options.mixinSourceDir || './app/mixins');
+
     // Handle relative paths
     if (importPath.startsWith('.')) {
-      const resolvedPath = resolve(dirname(currentFilePath), importPath);
-      const possiblePaths = [resolvedPath, `${resolvedPath}.js`, `${resolvedPath}.ts`];
-
-      const mixinSourceDir = resolve(options.mixinSourceDir || './app/mixins');
-
-      for (const path of possiblePaths) {
-        if (existsSync(path)) {
-          // Check if this resolved path is within the mixins source directory
-          if (path.startsWith(mixinSourceDir)) {
-            return path;
-          }
-          break;
-        }
-      }
-
-      return null;
+      return resolveRelativeImport(importPath, currentFilePath, mixinSourceDir, logger);
     }
 
     // Handle external/package imports using additionalMixinSources
     if (options.additionalMixinSources) {
-      logger.debug(
-        `📋 Trying to resolve external import '${importPath}' using ${options.additionalMixinSources.length} additional sources`
-      );
-
-      for (const source of options.additionalMixinSources) {
-        // Convert glob pattern to regex
-        const patternRegex = new RegExp('^' + source.pattern.replace(/\*/g, '(.*)') + '$');
-
-        logger.debug(`📋 Testing pattern '${source.pattern}' (regex: ${patternRegex}) against import '${importPath}'`);
-
-        const match = importPath.match(patternRegex);
-        if (match) {
-          // Replace the matched wildcards in the directory path
-          let targetDir = source.dir;
-          for (let i = 1; i < match.length; i++) {
-            targetDir = targetDir.replace('*', match[i]);
-          }
-
-          // Try different extensions
-          const possiblePaths = [targetDir, `${targetDir}.js`, `${targetDir}.ts`];
-
-          logger.debug(`📋 Trying to resolve external mixin '${importPath}' to '${targetDir}'`);
-
-          for (const path of possiblePaths) {
-            if (existsSync(path)) {
-              logger.debug(`📋 Successfully resolved '${importPath}' to '${path}'`);
-              return path;
-            }
-          }
-        }
+      const externalResolved = resolveExternalImport(importPath, options.additionalMixinSources, logger);
+      if (externalResolved) {
+        return externalResolved;
       }
     }
 
     // If not found in external sources, try to resolve in local mixins directory
-    const mixinSourceDir = resolve(options.mixinSourceDir || './app/mixins');
-
-    // For local module imports like 'my-app/mixins/foo', extract just the last part
-    const localMixinPath = importPath.includes('/mixins/') ? importPath.split('/mixins/')[1] : importPath;
-
-    const localResolvedPath = resolve(mixinSourceDir, localMixinPath);
-    const possiblePaths = [localResolvedPath, `${localResolvedPath}.js`, `${localResolvedPath}.ts`];
-
-    for (const path of possiblePaths) {
-      if (existsSync(path)) {
-        logger.debug(`📋 Successfully resolved local mixin '${importPath}' to '${path}'`);
-        return path;
-      }
+    const localResolved = resolveLocalModuleImport(importPath, mixinSourceDir, logger);
+    if (localResolved) {
+      return localResolved;
     }
 
     logger.debug(`📋 Could not resolve mixin path '${importPath}'`);
-
     return null;
   } catch (error) {
     logger.debug(`📋 DEBUG: Error resolving path '${importPath}': ${String(error)}`);
@@ -358,33 +415,32 @@ function extractPolymorphicMixinReferences(
     const root = ast.root();
 
     // Find all decorator nodes (for @belongsTo syntax)
-    const decorators = root.findAll({ rule: { kind: 'decorator' } });
-
+    const decorators = findDecorators(root);
     logger.debug(`Found ${decorators.length} decorators in ${filePath}`);
 
     for (const decorator of decorators) {
       const decoratorText = decorator.text();
-      if (!decoratorText.includes('belongsTo')) continue;
+      if (!decoratorText.includes(BELONGS_TO_NAME)) continue;
 
       // Extract the call expression from the decorator
-      const callExpr = decorator.find({ rule: { kind: 'call_expression' } });
+      const callExpr = decorator.find({ rule: { kind: NODE_KIND_CALL_EXPRESSION } });
       if (!callExpr) continue;
 
       const args = callExpr.field('arguments');
       if (!args) continue;
 
       // Get the string and object arguments directly
-      const stringArgs = args.findAll({ rule: { kind: 'string' } });
-      const objectArgs = args.findAll({ rule: { kind: 'object' } });
+      const stringArgs = findStringArguments(args);
+      const objectArgs = findObjectArguments(args);
 
       if (stringArgs.length < 1) continue;
 
-      const typeName = stringArgs[0].text().replace(/['"]/g, '');
+      const typeName = removeQuoteChars(stringArgs[0].text());
 
       // Check if there's an object argument with polymorphic: true
       if (objectArgs.length >= 1) {
         const optionsText = objectArgs[0].text();
-        if (optionsText.includes('polymorphic') && optionsText.includes('true')) {
+        if (isPolymorphicRelationship(optionsText)) {
           // This is a polymorphic relationship - check if the type matches a mixin
           for (const mixinFile of mixinFiles) {
             const mixinName = extractBaseName(mixinFile);
@@ -401,7 +457,7 @@ function extractPolymorphicMixinReferences(
     }
 
     // Also check for regular function calls (non-decorator syntax)
-    const callExpressions = root.findAll({ rule: { kind: 'call_expression' } });
+    const callExpressions = findCallExpressions(root);
 
     for (const call of callExpressions) {
       const fn = call.field('function');
@@ -409,27 +465,26 @@ function extractPolymorphicMixinReferences(
 
       // Check if this is a belongsTo call (but not inside a decorator, which we already handled)
       const fnText = fn.text();
-      if (!fnText.includes('belongsTo')) continue;
+      if (!fnText.includes(BELONGS_TO_NAME)) continue;
 
       // Skip if this call is inside a decorator (already handled above)
-      const parentDecorator = call.parent()?.parent();
-      if (parentDecorator && parentDecorator.kind() === 'decorator') continue;
+      if (isInsideDecorator(call)) continue;
 
       const args = call.field('arguments');
       if (!args) continue;
 
       // Get the string and object arguments directly
-      const stringArgs = args.findAll({ rule: { kind: 'string' } });
-      const objectArgs = args.findAll({ rule: { kind: 'object' } });
+      const stringArgs = findStringArguments(args);
+      const objectArgs = findObjectArguments(args);
 
       if (stringArgs.length < 1) continue;
 
-      const typeName = stringArgs[0].text().replace(/['"]/g, '');
+      const typeName = removeQuoteChars(stringArgs[0].text());
 
       // Check if there's an object argument with polymorphic: true
       if (objectArgs.length >= 1) {
         const optionsText = objectArgs[0].text();
-        if (optionsText.includes('polymorphic') && optionsText.includes('true')) {
+        if (isPolymorphicRelationship(optionsText)) {
           // This is a polymorphic relationship - check if the type matches a mixin
           for (const mixinFile of mixinFiles) {
             const mixinName = extractBaseName(mixinFile);
@@ -472,18 +527,16 @@ function extractTypeOnlyMixinReferences(
     const root = ast.root();
 
     // Find all import statements
-    const importStatements = root.findAll({ rule: { kind: 'import_statement' } });
+    const importStatements = findImportStatements(root);
 
     for (const importStatement of importStatements) {
       const importText = importStatement.text();
 
       // Check if this is a type-only import (import type ...)
-      if (!importText.includes('import type')) continue;
+      if (!isTypeOnlyImport(importText)) continue;
 
-      const sourceNode = importStatement.find({ rule: { kind: 'string' } });
-      if (!sourceNode) continue;
-
-      const importPath = sourceNode.text().replace(/['"]/g, '');
+      const importPath = getImportSourcePath(importStatement);
+      if (!importPath) continue;
 
       // Check if this import path resolves to a mixin file
       const resolved = resolveMixinPath(importPath, filePath, logger, options);
