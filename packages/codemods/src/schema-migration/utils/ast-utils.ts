@@ -54,6 +54,7 @@ export {
   getExportedIdentifier,
   parseDecoratorArgumentsWithNodes,
   parseObjectLiteralFromNode,
+  parseObjectPropertiesFromNode,
   parseObjectLiteral,
   extractJSDocComment,
   extractExistingImports,

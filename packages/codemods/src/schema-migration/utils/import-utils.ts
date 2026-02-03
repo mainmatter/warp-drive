@@ -6,7 +6,13 @@ import { dirname, resolve } from 'path';
 import type { TransformOptions } from '../config.js';
 import { findDefaultExport, getExportedIdentifier } from './ast-helpers.js';
 import { debugLog } from './logging.js';
-import { extractBaseName, getLanguageFromPath, removeQuotes, toPascalCase } from './path-utils.js';
+import {
+  extractBaseName,
+  getLanguageFromPath,
+  mixinNameToTraitName,
+  removeQuotes,
+  toPascalCase,
+} from './path-utils.js';
 
 /**
  * Default import sources for common Ember patterns
@@ -965,33 +971,6 @@ function convertImportToAbsolute(
     debugLog(options, `Error converting import: ${String(error)}`);
     return null;
   }
-}
-
-// Import mixinNameToTraitName inline
-function mixinNameToTraitName(mixinNameOrPath: string, forStringReference = false): string {
-  let traitName = mixinNameOrPath;
-
-  if (traitName.includes('/') || traitName.includes('\\')) {
-    const fileName = traitName.split('/').pop() || traitName.split('\\').pop() || traitName;
-    traitName = fileName.replace(/\.(js|ts)$/, '');
-    traitName = traitName
-      .split('-')
-      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-      .join('');
-  }
-
-  if (traitName.endsWith('Mixin')) {
-    traitName = traitName.slice(0, -5);
-  }
-
-  if (forStringReference) {
-    return traitName
-      .replace(/([A-Z])/g, '-$1')
-      .toLowerCase()
-      .replace(/^-/, '');
-  }
-
-  return traitName.charAt(0).toLowerCase() + traitName.slice(1);
 }
 
 /**

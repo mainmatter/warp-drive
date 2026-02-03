@@ -98,10 +98,12 @@ export function parseDecoratorArgumentsWithNodes(decorator: SgNode): { text: str
 }
 
 /**
- * Internal function to parse object properties from an AST object node
+ * Parse object properties from an AST object node
  * Handles proper type conversion for all JavaScript value types
+ *
+ * This is the single source of truth for object literal parsing across the codebase.
  */
-function parseObjectPropertiesFromNode(objectNode: SgNode): Record<string, unknown> {
+export function parseObjectPropertiesFromNode(objectNode: SgNode): Record<string, unknown> {
   const optionsObj: Record<string, unknown> = {};
   const properties = objectNode.children().filter((child) => child.kind() === 'pair');
 

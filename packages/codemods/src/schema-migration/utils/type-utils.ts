@@ -1,58 +1,17 @@
 import type { SgNode } from '@ast-grep/napi';
 
 import type { TransformOptions } from '../config.js';
+import { parseObjectPropertiesFromNode } from './ast-helpers.js';
+import { DEFAULT_EMBER_DATA_SOURCE, DEFAULT_MIXIN_SOURCE } from './import-utils.js';
 import { debugLog } from './logging.js';
 import { removeQuotes, toPascalCase } from './path-utils.js';
 
-/**
- * Internal function to parse object properties from an AST object node
- * Handles proper type conversion for all JavaScript value types
- */
-function parseObjectPropertiesFromNode(objectNode: SgNode): Record<string, unknown> {
-  const optionsObj: Record<string, unknown> = {};
-  const properties = objectNode.children().filter((child) => child.kind() === 'pair');
-
-  for (const property of properties) {
-    const keyNode = property.field('key');
-    const valueNode = property.field('value');
-    if (!keyNode || !valueNode) continue;
-
-    const key = keyNode.text();
-    // Remove quotes from key if present
-    const cleanKey =
-      key.startsWith('"') && key.endsWith('"')
-        ? key.slice(1, -1)
-        : key.startsWith("'") && key.endsWith("'")
-          ? key.slice(1, -1)
-          : key;
-
-    // Extract the value based on its type
-    let value: unknown;
-    if (valueNode.kind() === 'string') {
-      value = valueNode.text().slice(1, -1); // Remove quotes
-    } else if (valueNode.kind() === 'true') {
-      value = true;
-    } else if (valueNode.kind() === 'false') {
-      value = false;
-    } else if (valueNode.kind() === 'number') {
-      value = parseFloat(valueNode.text());
-    } else if (valueNode.kind() === 'null') {
-      value = null;
-    } else if (valueNode.kind() === 'undefined') {
-      value = undefined;
-    } else {
-      // For other types (like identifiers, member expressions), use the text representation
-      value = valueNode.text();
-    }
-
-    optionsObj[cleanKey] = value;
-  }
-
-  return optionsObj;
-}
+// Re-export constants for backward compatibility
+export { DEFAULT_EMBER_DATA_SOURCE, DEFAULT_MIXIN_SOURCE };
 
 /**
  * Parse an object literal from an AST node directly
+ * Wrapper around parseObjectPropertiesFromNode with error handling
  */
 function parseObjectLiteralFromNodeInternal(objectNode: SgNode): Record<string, unknown> {
   try {
@@ -62,12 +21,6 @@ function parseObjectLiteralFromNodeInternal(objectNode: SgNode): Record<string, 
     return {};
   }
 }
-
-/**
- * Default import sources for common Ember patterns
- */
-export const DEFAULT_EMBER_DATA_SOURCE = '@ember-data/model';
-export const DEFAULT_MIXIN_SOURCE = '@ember/object/mixin';
 
 /**
  * Built-in type mappings for EmberData transforms
