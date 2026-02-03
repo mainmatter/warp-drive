@@ -748,6 +748,82 @@ export default class TestModel extends BaseModel {
     `);
   });
 
+  it('base-model import with extension', async () => {
+    prepareFiles(tempDir, {
+      'app/models/typed.ts': `
+import BaseModel from 'test-app/models/base-model.js';
+
+export default class TestModel extends BaseModel {
+  @attr('string') declare name: string | null;
+  @belongsTo('user', { async: false, inverse: null })
+  declare owner: unknown;
+  @hasMany('tag', { async: true, inverse: null })
+  declare tags: unknown;
+}
+`,
+    });
+
+    await runMigration({
+      ...options,
+      baseModel: {
+        import: 'test-app/models/base-model',
+        extension: 'static-base-model-extension',
+        trait: 'static-base-model-trait',
+      }
+    });
+    const dataDir = join(tempDir, 'app/data');
+    expect(collectFilesSnapshot(dataDir)['resources/typed.schema.ts']).toBeTruthy();
+    expect(collectFilesSnapshot(dataDir)).toMatchInlineSnapshot(`
+      {
+        "extensions/": "__dir__",
+        "extensions/typed.ts": "
+      import BaseModel from 'test-app/models/base-model.js';
+
+      import type { Typed } from 'test-app/data/resources/typed.schema.types';
+
+      export interface TypedExtension extends Typed {}
+
+      export class TypedExtension {
+        @attr('string') declare name: string | null
+
+        @belongsTo('user', { async: false, inverse: null })
+          declare owner: unknown
+
+        @hasMany('tag', { async: true, inverse: null })
+          declare tags: unknown
+      }
+
+      export type TypedExtensionSignature = typeof TypedExtension;",
+        "resources/": "__dir__",
+        "resources/typed.schema.ts": "
+      export const TypedSchema = {
+        'type': 'typed',
+        'legacy': true,
+        'identity': {
+          'kind': '@id',
+          'name': 'id'
+        },
+        'fields': [],
+        'traits': [
+          'static-base-model-trait'
+        ],
+        'objectExtensions': [
+          'static-base-model-extension'
+        ]
+      };",
+        "resources/typed.schema.types.ts": "
+      import type { Type } from '@ember-data/core-types/symbols';
+      import type { StaticBaseModelTraitTrait } from 'test-app/data/traits/static-base-model-trait.schema.types';
+
+      export interface Typed extends StaticBaseModelTraitTrait {
+      	readonly [Type]: 'typed';
+      }
+      ",
+        "traits/": "__dir__",
+      }
+    `);
+  });
+
   it('regression: ember-data import without default import is respected', async () => {
     prepareFiles(tempDir, {
       'app/models/typed.ts': `
@@ -842,7 +918,6 @@ export default class TestModel extends BaseModel {
       }
     `);
   });
-
 });
 
 

@@ -840,8 +840,7 @@ export function findEmberImportLocalName(
     const source = importNode.field('source');
     if (!source) continue;
 
-    const sourceText = source.text();
-    const cleanSourceText = removeQuotes(sourceText);
+    const cleanSourceText = removeQuotes(source.text()).replace(FILE_EXTENSION_REGEX, '');
 
     // Check if this is a direct match with expected sources
     if (expectedSources.includes(cleanSourceText)) {
