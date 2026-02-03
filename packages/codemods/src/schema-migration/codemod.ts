@@ -8,6 +8,7 @@ import { extractBaseName } from './utils/ast-utils.js';
 import { Logger } from './utils/logger.js';
 import { analyzeModelMixinUsage } from './processors/mixin-analyzer.js';
 import { willModelHaveExtension } from './processors/model.js';
+import { FILE_EXTENSION_REGEX, TRAILING_SINGLE_WILDCARD_REGEX, TRAILING_WILDCARD_REGEX } from './utils/string.js';
 
 type Filename = string;
 type InputFile = { path: string; code: string };
@@ -32,7 +33,7 @@ function isIntermediateModel(
       // Check if file is from a matching additional source
       if (additionalModelSources) {
         for (const source of additionalModelSources) {
-          const sourceDirResolved = resolve(source.dir.replace(/\/?\*+$/, ''));
+          const sourceDirResolved = resolve(source.dir.replace(TRAILING_WILDCARD_REGEX, ''));
           if (filePath.startsWith(sourceDirResolved)) {
             return true;
           }
@@ -54,7 +55,7 @@ function expandGlobPattern(dir: string): string {
   let dirGlobPattern = dir;
   if (dirGlobPattern.endsWith('*')) {
     // Replace trailing * with **/*.{js,ts}
-    dirGlobPattern = dirGlobPattern.replace(/\*$/, '**/*.{js,ts}');
+    dirGlobPattern = dirGlobPattern.replace(TRAILING_SINGLE_WILDCARD_REGEX, '**/*.{js,ts}');
   } else {
     // Add **/*.{js,ts} if no glob pattern
     dirGlobPattern = join(dirGlobPattern, '**/*.{js,ts}');
@@ -229,7 +230,7 @@ function isAlreadyProcessed(filePath: string): boolean {
   const outputPath = filePath
     .replace('/models/', '/schemas/')
     .replace('/mixins/', '/traits/')
-    .replace(/\.(js|ts)$/, '.ts');
+    .replace(FILE_EXTENSION_REGEX, '.ts');
 
   return existsSync(outputPath);
 }

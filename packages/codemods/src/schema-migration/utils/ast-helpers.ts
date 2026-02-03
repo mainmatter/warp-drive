@@ -5,6 +5,7 @@ import type { TransformOptions } from '../config.js';
 import { isMixinImportPath, isSpecialMixinImport } from './import-utils.js';
 import { debugLog } from './logging.js';
 import { getLanguageFromPath, removeQuotes } from './path-utils.js';
+import { JSDOC_COMMENT_REGEX, MIXIN_SUFFIX_REGEX } from './string.js';
 
 /**
  * Find all export statements
@@ -202,8 +203,7 @@ export function extractJSDocComment(node: SgNode): string | undefined {
   const textBeforeNode = source.substring(0, nodeIndex);
 
   // Match JSDoc comments - /** ... */ with potential whitespace/newlines
-  const jsdocRegex = /\/\*\*[\s\S]*?\*\/\s*$/;
-  const match = textBeforeNode.match(jsdocRegex);
+  const match = textBeforeNode.match(JSDOC_COMMENT_REGEX);
 
   if (match) {
     // Clean up the JSDoc comment - remove /** */ and normalize whitespace
@@ -272,8 +272,8 @@ export function findAssociatedInterface(root: SgNode, mixinName: string, options
   // e.g., baseModelMixin -> BaseModelMixin, BaseModel, BaseModelInterface
   const potentialNames = [
     mixinName.charAt(0).toUpperCase() + mixinName.slice(1), // camelCase to PascalCase
-    mixinName.charAt(0).toUpperCase() + mixinName.slice(1).replace(/Mixin$/, ''), // Remove Mixin suffix
-    mixinName.charAt(0).toUpperCase() + mixinName.slice(1).replace(/Mixin$/, 'Interface'), // Replace with Interface
+    mixinName.charAt(0).toUpperCase() + mixinName.slice(1).replace(MIXIN_SUFFIX_REGEX, ''), // Remove Mixin suffix
+    mixinName.charAt(0).toUpperCase() + mixinName.slice(1).replace(MIXIN_SUFFIX_REGEX, 'Interface'), // Replace with Interface
   ];
 
   // Find all interface declarations

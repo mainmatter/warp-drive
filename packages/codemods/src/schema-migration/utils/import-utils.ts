@@ -13,6 +13,20 @@ import {
   removeQuotes,
   toPascalCase,
 } from './path-utils.js';
+import {
+  createQuotedPathRegex,
+  escapeRegexChars,
+  EXTENSION_PATH_REGEX,
+  FILE_EXTENSION_REGEX,
+  IMPORT_DEFAULT_REGEX,
+  IMPORT_PATH_SINGLE_QUOTE_REGEX,
+  IMPORT_TYPE_DEFAULT_REGEX,
+  LEADING_HYPHEN_REGEX,
+  MODEL_SUFFIX_REGEX,
+  QUOTE_CHARS_REGEX,
+  SCHEMA_TYPES_PATH_REGEX,
+  UPPERCASE_LETTER_REGEX,
+} from './string.js';
 
 /**
  * Default import sources for common Ember patterns
@@ -54,7 +68,7 @@ function getTypeSymbolImportPath(emberDataSource: string): string {
   if (emberDataSource.includes('/model')) {
     // Replace /model with /core-types/symbols for custom packages
     // e.g., @auditboard/warp-drive/v1/model -> @auditboard/warp-drive/v1/core-types/symbols
-    return emberDataSource.replace(/\/model$/, '/core-types/symbols');
+    return emberDataSource.replace(MODEL_SUFFIX_REGEX, '/core-types/symbols');
   }
   // Default to the standard warp-drive path
   return '@warp-drive/core/types/symbols';
@@ -75,7 +89,7 @@ export function generateCommonWarpDriveImports(options?: TransformOptions): {
   // e.g., @auditboard/warp-drive/v1/model -> @auditboard/warp-drive/v1/store
   //       @ember-data/model -> @warp-drive/core
   const storeImportPath = emberDataSource.includes('/model')
-    ? emberDataSource.replace(/\/model$/, '/store')
+    ? emberDataSource.replace(MODEL_SUFFIX_REGEX, '/store')
     : '@warp-drive/core';
   return {
     typeImport: generateWarpDriveTypeImport('Type', typeSymbolPath, options),
@@ -134,9 +148,9 @@ function shouldImportFromTraits(relatedType: string, options?: TransformOptions)
           .pop()
           ?.replace(/-?model$/i, '') || modelPath;
       const traitName = traitBaseName
-        .replace(/([A-Z])/g, '-$1')
+        .replace(UPPERCASE_LETTER_REGEX, '-$1')
         .toLowerCase()
-        .replace(/^-/, '');
+        .replace(LEADING_HYPHEN_REGEX, '');
 
       if (traitName === relatedType) {
         return true;
@@ -253,7 +267,7 @@ export function extractTypeNameMapping(root: SgNode, options?: TransformOptions)
       let regexPattern: RegExp;
       if (modelImportSource) {
         // Escape special regex characters in the import source
-        const escapedModelImportSource = modelImportSource.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const escapedModelImportSource = escapeRegexChars(modelImportSource);
         regexPattern = new RegExp(
           `import\\s+type\\s+(\\w+)\\s+from\\s+['"](?:\\.\\/([^'"]+)|${escapedModelImportSource}\\/([^'"]+))['"];?`
         );
@@ -270,10 +284,7 @@ export function extractTypeNameMapping(root: SgNode, options?: TransformOptions)
 
         if (modelPath) {
           // Extract the model type from the path (e.g., "user" from "./user" or "my-app/models/user")
-          const modelType = modelPath
-            .replace(/\.(js|ts)$/, '')
-            .split('/')
-            .pop();
+          const modelType = modelPath.replace(FILE_EXTENSION_REGEX, '').split('/').pop();
           if (modelType) {
             debugLog(options, `Mapping model type '${modelType}' to import name '${importName}'`);
             mapping.set(modelType, importName);
@@ -729,7 +740,7 @@ export function isModelFile(filePath: string, source: string, options?: Transfor
       const importSource = importNode.field('source');
       if (!importSource) continue;
 
-      const sourceText = importSource.text().replace(/['"]/g, '');
+      const sourceText = importSource.text().replace(QUOTE_CHARS_REGEX, '');
 
       // Check for direct matches with base model sources
       let isBaseModelImport = baseModelSources.includes(sourceText);
@@ -893,7 +904,7 @@ function convertToAbsoluteImportPath(resolvedPath: string, baseDir: string, opti
     const relativePath = resolvedPath.replace(baseDir + '/', '');
 
     // Remove the file extension
-    const pathWithoutExt = relativePath.replace(/\.(js|ts)$/, '');
+    const pathWithoutExt = relativePath.replace(FILE_EXTENSION_REGEX, '');
 
     // Convert to import path format
     const importPath = pathWithoutExt.startsWith('apps/') ? pathWithoutExt.replace('apps/', '') : pathWithoutExt;
@@ -928,7 +939,7 @@ function convertImportToAbsolute(
         const resourceImport = transformModelToResourceImport(modelName, pascalCaseName, options);
 
         // Extract just the import path from the full import statement
-        const importPathMatch = resourceImport.match(/from '([^']+)'/);
+        const importPathMatch = resourceImport.match(IMPORT_PATH_SINGLE_QUOTE_REGEX);
         if (importPathMatch) {
           debugLog(options, `Converting model import ${originalImport} to resource import: ${importPathMatch[1]}`);
           return importPathMatch[1];
@@ -1043,7 +1054,7 @@ export function processImports(source: string, filePath: string, baseDir: string
           const quoteChar = sourceText.includes("'") ? "'" : '"';
           // Replace the path inside the quotes, preserving the quote style
           let newImport = originalImport.replace(
-            new RegExp(`(['"])${cleanSourceText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\1`),
+            createQuotedPathRegex(cleanSourceText),
             `${quoteChar}${convertedImport}${quoteChar}`
           );
 
@@ -1058,42 +1069,40 @@ export function processImports(source: string, filePath: string, baseDir: string
             // Check if this is a trait import (from traits/ directory)
             const isTraitImport = convertedImport.includes('/traits/');
             // Extract the trait/resource base name from the import path
-            const pathMatch = convertedImport.match(/\/(traits|resources)\/([^/'"]+)\.schema\.types$/);
+            const pathMatch = convertedImport.match(SCHEMA_TYPES_PATH_REGEX);
             const baseName = pathMatch ? pathMatch[2] : null;
 
             // Convert "import type ModelName from 'path'" to "import type { ModelName } from 'path'"
             // Handle Model suffix by creating aliased imports
             // Handle Trait imports by using the correct Trait suffix export name
-            newImport = newImport.replace(
-              /import\s+type\s+([A-Z][a-zA-Z0-9]*)\s+from/g,
-              (_match: string, typeName: string) => {
-                if (typeName.endsWith('Model')) {
-                  const interfaceName = typeName.slice(0, -5); // Remove 'Model' suffix
-                  return `import type { ${interfaceName} as ${typeName} } from`;
-                }
-                // For trait imports, the export is *Trait but the import name might not have Trait suffix
-                if (isTraitImport && baseName && !typeName.endsWith('Trait')) {
-                  const traitClassName = toPascalCase(baseName) + 'Trait';
-                  return `import type { ${traitClassName} as ${typeName} } from`;
-                }
-                return `import type { ${typeName} } from`;
+            newImport = newImport.replace(IMPORT_TYPE_DEFAULT_REGEX, (_match: string, typeName: string) => {
+              if (typeName.endsWith('Model')) {
+                const interfaceName = typeName.slice(0, -5); // Remove 'Model' suffix
+                return `import type { ${interfaceName} as ${typeName} } from`;
               }
-            );
+              // For trait imports, the export is *Trait but the import name might not have Trait suffix
+              if (isTraitImport && baseName && !typeName.endsWith('Trait')) {
+                const traitClassName = toPascalCase(baseName) + 'Trait';
+                return `import type { ${traitClassName} as ${typeName} } from`;
+              }
+              return `import type { ${typeName} } from`;
+            });
+            // Reset regex lastIndex for reuse
+            IMPORT_TYPE_DEFAULT_REGEX.lastIndex = 0;
             // Also handle imports without 'type' keyword
-            newImport = newImport.replace(
-              /import\s+([A-Z][a-zA-Z0-9]*)\s+from/g,
-              (_match: string, typeName: string) => {
-                if (typeName.endsWith('Model')) {
-                  const interfaceName = typeName.slice(0, -5); // Remove 'Model' suffix
-                  return `import type { ${interfaceName} as ${typeName} } from`;
-                }
-                if (isTraitImport && baseName && !typeName.endsWith('Trait')) {
-                  const traitClassName = toPascalCase(baseName) + 'Trait';
-                  return `import type { ${traitClassName} as ${typeName} } from`;
-                }
-                return `import type { ${typeName} } from`;
+            newImport = newImport.replace(IMPORT_DEFAULT_REGEX, (_match: string, typeName: string) => {
+              if (typeName.endsWith('Model')) {
+                const interfaceName = typeName.slice(0, -5); // Remove 'Model' suffix
+                return `import type { ${interfaceName} as ${typeName} } from`;
               }
-            );
+              if (isTraitImport && baseName && !typeName.endsWith('Trait')) {
+                const traitClassName = toPascalCase(baseName) + 'Trait';
+                return `import type { ${traitClassName} as ${typeName} } from`;
+              }
+              return `import type { ${typeName} } from`;
+            });
+            // Reset regex lastIndex for reuse
+            IMPORT_DEFAULT_REGEX.lastIndex = 0;
             debugLog(options, `Converted default import to named import: ${newImport}`);
           } else if (convertedImport.includes('.schema.types') && filePath.endsWith('.js')) {
             debugLog(
@@ -1113,25 +1122,23 @@ export function processImports(source: string, filePath: string, baseDir: string
               `Found extension import in TypeScript file, converting default to named: ${originalImport}`
             );
             // Extract the model base name from the import path to get correct Extension class name
-            const extensionPathMatch = convertedImport.match(/\/extensions\/([^/'"]+)$/);
+            const extensionPathMatch = convertedImport.match(EXTENSION_PATH_REGEX);
             const modelBaseName = extensionPathMatch ? extensionPathMatch[1] : null;
             const extensionClassName = modelBaseName ? toPascalCase(modelBaseName) + 'Extension' : null;
 
             if (extensionClassName) {
-              newImport = newImport.replace(
-                /import\s+type\s+([A-Z][a-zA-Z0-9]*)\s+from/g,
-                (_match: string, typeName: string) => {
-                  // Use the extension class name from the path, alias to the original import name
-                  return `import type { ${extensionClassName} as ${typeName} } from`;
-                }
-              );
+              newImport = newImport.replace(IMPORT_TYPE_DEFAULT_REGEX, (_match: string, typeName: string) => {
+                // Use the extension class name from the path, alias to the original import name
+                return `import type { ${extensionClassName} as ${typeName} } from`;
+              });
+              // Reset regex lastIndex for reuse
+              IMPORT_TYPE_DEFAULT_REGEX.lastIndex = 0;
               // Also handle imports without 'type' keyword
-              newImport = newImport.replace(
-                /import\s+([A-Z][a-zA-Z0-9]*)\s+from/g,
-                (_match: string, typeName: string) => {
-                  return `import type { ${extensionClassName} as ${typeName} } from`;
-                }
-              );
+              newImport = newImport.replace(IMPORT_DEFAULT_REGEX, (_match: string, typeName: string) => {
+                return `import type { ${extensionClassName} as ${typeName} } from`;
+              });
+              // Reset regex lastIndex for reuse
+              IMPORT_DEFAULT_REGEX.lastIndex = 0;
               debugLog(options, `Converted extension import to named import: ${newImport}`);
             }
           } else {

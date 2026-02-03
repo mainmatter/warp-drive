@@ -31,6 +31,7 @@ import {
   toPascalCase,
   withTransformWrapper,
 } from '../utils/ast-utils.js';
+import { mixinNameToKebab, pascalToKebab, TRAIT_SUFFIX_REGEX } from '../utils/string.js';
 
 /**
  * Determines if an AST node represents object method syntax that doesn't need key: value format
@@ -665,11 +666,7 @@ function extractTraitFields(
               const extendedMixinName = arg.text();
               // Convert mixin name to dasherized trait name
               // Remove "Mixin" suffix if present, then convert to dasherized format
-              const baseName = extendedMixinName.replace(/Mixin$/, '');
-              const traitName = baseName
-                .replace(/([A-Z])/g, '-$1')
-                .toLowerCase()
-                .replace(/^-/, '');
+              const traitName = mixinNameToKebab(extendedMixinName);
               if (!extendedTraits.includes(traitName)) {
                 extendedTraits.push(traitName);
                 debugLog(options, `Found extended trait: ${traitName} from mixin ${mixinName}`);
@@ -721,11 +718,7 @@ function extractTraitFields(
       if (arg.kind() === 'identifier' && arg !== objectLiteral) {
         const extendedMixinName = arg.text();
         // Convert mixin name to dasherized trait name
-        const baseName = extendedMixinName.replace(/Mixin$/, '');
-        const traitName = baseName
-          .replace(/([A-Z])/g, '-$1')
-          .toLowerCase()
-          .replace(/^-/, '');
+        const traitName = mixinNameToKebab(extendedMixinName);
         if (!extendedTraits.includes(traitName)) {
           extendedTraits.push(traitName);
           debugLog(options, `Found extended trait: ${traitName} from mixin ${extendedMixinName}`);
@@ -872,10 +865,7 @@ function generateLegacyTrait(
 ): string {
   const traitName = `${mixinName}Trait`;
   // Convert to dasherized format for the name property
-  const traitInternalName = mixinName
-    .replace(/([A-Z])/g, '-$1')
-    .toLowerCase()
-    .replace(/^-/, ''); // Remove leading dash if present
+  const traitInternalName = pascalToKebab(mixinName);
 
   // If there are no trait fields, create an extension object instead
   if (traitFields.length === 0 && extensionProperties.length > 0) {
@@ -922,12 +912,9 @@ function generateTraitCode(
   traitFields: Array<{ name: string; kind: string; type?: string; options?: Record<string, unknown> }>,
   extendedTraits: string[] = []
 ): string {
-  const traitInternalName = traitName.replace(/Trait$/, '');
+  const traitInternalName = traitName.replace(TRAIT_SUFFIX_REGEX, '');
   // Convert to dasherized format for the name property
-  const dasherizedName = traitInternalName
-    .replace(/([A-Z])/g, '-$1')
-    .toLowerCase()
-    .replace(/^-/, ''); // Remove leading dash if present
+  const dasherizedName = pascalToKebab(traitInternalName);
 
   const legacyTrait: Record<string, unknown> = {
     name: dasherizedName,

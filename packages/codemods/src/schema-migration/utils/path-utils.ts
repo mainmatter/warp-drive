@@ -1,12 +1,28 @@
 import type { Lang } from '@ast-grep/napi';
 import { Lang as AstLang } from '@ast-grep/napi';
 
+import {
+  capitalizeFirstLetter,
+  capitalizeWord,
+  DOUBLE_QUOTE_IMPORT_REGEX,
+  FILE_EXTENSION_REGEX,
+  kebabLetterToUpper,
+  KEBAB_TO_CAMEL_REGEX,
+  LEADING_HYPHEN_REGEX,
+  SINGLE_QUOTE_IMPORT_REGEX,
+  SURROUNDING_QUOTES_REGEX,
+  UPPERCASE_LETTER_REGEX,
+  WHITESPACE_REGEX,
+  WORD_BOUNDARY_REGEX,
+  WORD_SEPARATOR_REGEX,
+} from './string.js';
+
 /**
  * Extract the file name (without extension) from a file path
  */
 function extractFileNameWithoutExtension(filePath: string): string {
   const fileName = filePath.split('/').pop() || filePath.split('\\').pop() || 'unknown';
-  return fileName.replace(/\.(js|ts)$/, '');
+  return fileName.replace(FILE_EXTENSION_REGEX, '');
 }
 
 /**
@@ -24,7 +40,7 @@ export function extractCamelCaseName(filePath: string): string {
 
   // Convert kebab-case to camelCase for valid JavaScript identifier
   // test-plannable -> testPlannable
-  return baseName.replace(/-([a-z])/g, (_match, letter: string) => letter.toUpperCase());
+  return baseName.replace(KEBAB_TO_CAMEL_REGEX, kebabLetterToUpper);
 }
 
 /**
@@ -34,10 +50,7 @@ export function extractCamelCaseName(filePath: string): string {
 export function extractPascalCaseName(filePath: string): string {
   const baseName = extractFileNameWithoutExtension(filePath);
 
-  return baseName
-    .split('-')
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join('');
+  return baseName.split('-').map(capitalizeFirstLetter).join('');
 }
 
 /**
@@ -45,9 +58,9 @@ export function extractPascalCaseName(filePath: string): string {
  */
 export function toPascalCase(str: string): string {
   return str
-    .replace(/[-_]/g, ' ')
-    .replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.slice(1).toLowerCase())
-    .replace(/\s+/g, '');
+    .replace(WORD_SEPARATOR_REGEX, ' ')
+    .replace(WORD_BOUNDARY_REGEX, capitalizeWord)
+    .replace(WHITESPACE_REGEX, '');
 }
 
 /**
@@ -61,13 +74,10 @@ export function mixinNameToTraitName(mixinNameOrPath: string, forStringReference
   // If this looks like a file path, extract the base name
   if (traitName.includes('/') || traitName.includes('\\')) {
     const fileName = traitName.split('/').pop() || traitName.split('\\').pop() || traitName;
-    traitName = fileName.replace(/\.(js|ts)$/, '');
+    traitName = fileName.replace(FILE_EXTENSION_REGEX, '');
 
     // Convert kebab-case file name to PascalCase
-    traitName = traitName
-      .split('-')
-      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-      .join('');
+    traitName = traitName.split('-').map(capitalizeFirstLetter).join('');
   }
 
   if (traitName.endsWith('Mixin')) {
@@ -76,10 +86,7 @@ export function mixinNameToTraitName(mixinNameOrPath: string, forStringReference
 
   if (forStringReference) {
     // Convert PascalCase to kebab-case for string references
-    return traitName
-      .replace(/([A-Z])/g, '-$1')
-      .toLowerCase()
-      .replace(/^-/, ''); // Remove leading dash if present
+    return traitName.replace(UPPERCASE_LETTER_REGEX, '-$1').toLowerCase().replace(LEADING_HYPHEN_REGEX, ''); // Remove leading dash if present
   }
 
   // Convert PascalCase to camelCase for const names
@@ -91,7 +98,7 @@ export function mixinNameToTraitName(mixinNameOrPath: string, forStringReference
  * Remove surrounding quotes from a string (single or double quotes)
  */
 export function removeQuotes(text: string): string {
-  return text.replace(/^['"]|['"]$/g, '');
+  return text.replace(SURROUNDING_QUOTES_REGEX, '');
 }
 
 /**
@@ -144,8 +151,8 @@ export function indentCode(code: string, indentLevel = 1): string {
  */
 export function detectQuoteStyle(source: string): 'single' | 'double' {
   // Count occurrences of single and double quotes in import/export statements
-  const singleQuoteMatches = source.match(/import\s+.*?from\s+'[^']+'/g) || [];
-  const doubleQuoteMatches = source.match(/import\s+.*?from\s+"[^"]+"/g) || [];
+  const singleQuoteMatches = source.match(SINGLE_QUOTE_IMPORT_REGEX) || [];
+  const doubleQuoteMatches = source.match(DOUBLE_QUOTE_IMPORT_REGEX) || [];
 
   // Default to single quotes if more single quotes are found (or equal)
   return singleQuoteMatches.length >= doubleQuoteMatches.length ? 'single' : 'double';

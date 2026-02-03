@@ -37,6 +37,19 @@ import {
   transformModelToResourceImport,
   withTransformWrapper,
 } from '../utils/ast-utils.js';
+import {
+  MODEL_NAME_SUFFIX_REGEX,
+  NAMED_TYPE_IMPORT_REGEX,
+  normalizePath,
+  pascalToKebab,
+  RELATIVE_TYPE_IMPORT_REGEX,
+  removeFileExtension,
+  removeQuoteChars,
+  SCHEMA_TYPES_SUFFIX_REGEX,
+  toKebabCase,
+  TRAILING_MODEL_SUFFIX_REGEX,
+  WILDCARD_REGEX,
+} from '../utils/string.js';
 
 /**
  * Get the base EmberData Model properties and methods that should be available on all model types.
@@ -382,7 +395,7 @@ function resolveImportPath(
 function matchesPattern(importPath: string, pattern: string): boolean {
   if (pattern.includes('*')) {
     // Convert wildcard pattern to regex
-    const regexPattern = pattern.replace(/\*/g, '.*');
+    const regexPattern = pattern.replace(WILDCARD_REGEX, '.*');
     const regex = new RegExp(`^${regexPattern}$`);
     return regex.test(importPath);
   }
@@ -396,14 +409,14 @@ function matchesPattern(importPath: string, pattern: string): boolean {
 function replacePattern(importPath: string, pattern: string, dir: string): string {
   if (pattern.includes('*')) {
     // For wildcard patterns, we need to extract the matched part and replace it
-    const regexPattern = pattern.replace(/\*/g, '(.*)');
+    const regexPattern = pattern.replace(WILDCARD_REGEX, '(.*)');
     const regex = new RegExp(`^${regexPattern}$`);
     const match = importPath.match(regex);
 
     if (match) {
       // Replace the wildcard part with the directory
       const wildcardPart = match[1]; // The part that matched the *
-      return dir.replace(/\*/g, wildcardPart);
+      return dir.replace(WILDCARD_REGEX, wildcardPart);
     }
   }
 
@@ -624,7 +637,7 @@ function generateRegularModelArtifacts(
   const schemaFieldTypes = [
     {
       name: '[Type]',
-      type: `'${baseName.replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase()}'`,
+      type: `'${toKebabCase(baseName)}'`,
       readonly: true,
     },
     ...schemaFields.map((field) => {
@@ -829,15 +842,8 @@ function generateIntermediateModelTraitArtifacts(
 
   // Extract the trait name from the model path
   // e.g., "my-app/core/data-field-model" -> "data-field"
-  const traitBaseName =
-    modelPath
-      .split('/')
-      .pop()
-      ?.replace(/-?model$/i, '') || modelPath;
-  const traitName = traitBaseName
-    .replace(/([A-Z])/g, '-$1')
-    .toLowerCase()
-    .replace(/^-/, '');
+  const traitBaseName = modelPath.split('/').pop()?.replace(MODEL_NAME_SUFFIX_REGEX, '') || modelPath;
+  const traitName = pascalToKebab(traitBaseName);
 
   const traitPascalName = toPascalCase(traitName);
 
@@ -1107,7 +1113,7 @@ function getIntermediateModelLocalNames(
         const source = importNode.field('source');
         if (!source) continue;
 
-        const sourceText = source.text().replace(/['"]/g, '');
+        const sourceText = removeQuoteChars(source.text());
 
         // Check if this is a relative import that could be our intermediate model
         if (sourceText.startsWith('./') || sourceText.startsWith('../')) {
@@ -1182,11 +1188,11 @@ function getIntermediateFragmentLocalNames(root: SgNode, options: TransformOptio
         const source = importNode.field('source');
         if (!source) continue;
 
-        const sourceText = source.text().replace(/['"]/g, '');
+        const sourceText = removeQuoteChars(source.text());
 
         // Normalize both paths for comparison
-        const normalizedFragmentPath = fragmentPath.replace(/\\/g, '/');
-        const normalizedSourceText = sourceText.replace(/\\/g, '/');
+        const normalizedFragmentPath = normalizePath(fragmentPath);
+        const normalizedSourceText = normalizePath(sourceText);
 
         // Check for direct module path match (e.g., 'codemod/models/base-fragment')
         if (normalizedSourceText === normalizedFragmentPath) {
@@ -1219,7 +1225,7 @@ function getIntermediateFragmentLocalNames(root: SgNode, options: TransformOptio
 
             for (const possiblePath of possiblePaths) {
               if (existsSync(possiblePath)) {
-                const normalizedPossiblePath = possiblePath.replace(/\\/g, '/');
+                const normalizedPossiblePath = normalizePath(possiblePath);
 
                 // Check if the resolved path ends with the configured fragment path
                 // or contains all the path segments in order
@@ -1240,7 +1246,7 @@ function getIntermediateFragmentLocalNames(root: SgNode, options: TransformOptio
                   let segmentIndex = 0;
 
                   for (let i = possiblePathParts.length - 1; i >= 0 && segmentIndex < pathSegments.length; i--) {
-                    const part = possiblePathParts[i].replace(/\.(ts|js)$/, '');
+                    const part = removeFileExtension(possiblePathParts[i]);
                     const expectedSegment = pathSegments[pathSegments.length - 1 - segmentIndex];
 
                     if (part === expectedSegment) {
@@ -1799,12 +1805,8 @@ function extractIntermediateModelTraits(
         // Convert path like "my-app/core/data-field-model" to "data-field-model"
         let traitName = modelPath.split('/').pop() || modelPath;
         // Strip any file extension (.js, .ts)
-        traitName = traitName.replace(/\.[jt]s$/, '');
-        const dasherizedName = traitName
-          .replace(/([A-Z])/g, '-$1')
-          .toLowerCase()
-          .replace(/^-/, '')
-          .replace(/-?model$/, ''); // Remove trailing -model or model
+        traitName = removeFileExtension(traitName);
+        const dasherizedName = pascalToKebab(traitName).replace(TRAILING_MODEL_SUFFIX_REGEX, ''); // Remove trailing -model or model
 
         intermediateTraits.push(dasherizedName);
         debugLog(options, `DEBUG: Found intermediate model trait: ${dasherizedName} from ${modelPath}`);
@@ -1994,9 +1996,9 @@ function transformModelImportsInSource(source: string, root: SgNode): string {
 
     // Check if this is a relative import to another model file
     // Pattern 1: import type SomeThing from './some-thing';
-    const relativeImportMatch = importText.match(/import\s+type\s+(\w+)\s+from\s+['"](\.\/.+?)['"];?/);
+    const relativeImportMatch = importText.match(RELATIVE_TYPE_IMPORT_REGEX);
     // Pattern 2: import type { SomeThing } from './some-thing.schema.types';
-    const namedImportMatch = importText.match(/import\s+type\s+\{\s*(\w+)\s*\}\s+from\s+['"](\.\/.+?)['"];?/);
+    const namedImportMatch = importText.match(NAMED_TYPE_IMPORT_REGEX);
 
     if (relativeImportMatch) {
       const [fullMatch, typeName, relativePath] = relativeImportMatch;
@@ -2005,7 +2007,7 @@ function transformModelImportsInSource(source: string, root: SgNode): string {
       // e.g., import type SomeThing from './some-thing.ts';
       // becomes import type { SomeThing } from './some-thing.schema.types';
       // But remove 'Model' suffix if present since interfaces don't use it
-      const pathWithoutExtension = relativePath.replace(/\.(js|ts)$/, '');
+      const pathWithoutExtension = removeFileExtension(relativePath);
       const interfaceName = typeName.endsWith('Model') ? typeName.slice(0, -5) : typeName;
 
       const transformedImport =
@@ -2019,7 +2021,7 @@ function transformModelImportsInSource(source: string, root: SgNode): string {
 
       // Handle named imports from schema.types files - fix Model suffix issue
       if (relativePath.includes('.schema.types') && typeName.endsWith('Model')) {
-        const pathWithoutExtension = relativePath.replace(/\.schema\.types$/, '');
+        const pathWithoutExtension = relativePath.replace(SCHEMA_TYPES_SUFFIX_REGEX, '');
         const interfaceName = typeName.slice(0, -5); // Remove 'Model' suffix
         const transformedImport = `import type { ${interfaceName} as ${typeName} } from '${pathWithoutExtension}.schema.types';`;
 

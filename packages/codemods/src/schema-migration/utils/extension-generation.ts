@@ -5,6 +5,16 @@ import type { TransformOptions } from '../config.js';
 import { debugLog, errorLog } from './logging.js';
 import { getLanguageFromPath, indentCode, removeQuotes } from './path-utils.js';
 import type { TransformArtifact, PropertyInfo } from './schema-generation.js';
+import {
+  EXPORT_DEFAULT_LINE_END_REGEX,
+  EXPORT_KEYWORD_REGEX,
+  EXPORT_LINE_END_REGEX,
+  extractDirectory,
+  PARENT_DIR_PREFIX_REGEX,
+  removeFileExtension,
+  removeSameDirPrefix,
+  SAME_DIR_PREFIX_REGEX,
+} from './string.js';
 
 /**
  * Generate extension code in either object or class format
@@ -164,7 +174,7 @@ function updateRelativeImportsForExtensions(
       // First try directory import mapping if available
       if (options?.directoryImportMapping && sourceFilePath) {
         // Extract the base directory structure from the source file
-        const sourceDir = sourceFilePath.replace(/\/[^/]+\.(js|ts)$/, '');
+        const sourceDir = extractDirectory(sourceFilePath);
 
         // Look for a mapping that matches the source directory structure
         for (const [mappedDir, importBase] of Object.entries(options.directoryImportMapping)) {
@@ -178,7 +188,7 @@ function updateRelativeImportsForExtensions(
               if (mappedDirIndex !== -1) {
                 const sourceRelativeDir = sourceDir.substring(mappedDirIndex + mappedDir.length);
                 const sourceParts = sourceRelativeDir.split('/').filter((part) => part !== '');
-                const filePath = importPath.replace('./', '').replace(/\.(js|ts)$/, '');
+                const filePath = removeFileExtension(removeSameDirPrefix(importPath));
 
                 if (sourceParts.length > 0) {
                   resolvedPath = `${importBase}/${sourceParts.join('/')}/${filePath}`;
@@ -186,7 +196,7 @@ function updateRelativeImportsForExtensions(
                   resolvedPath = `${importBase}/${filePath}`;
                 }
               } else {
-                const filePath = importPath.replace('./', '').replace(/\.(js|ts)$/, '');
+                const filePath = removeFileExtension(removeSameDirPrefix(importPath));
                 resolvedPath = `${importBase}/${filePath}`;
               }
             } else {
@@ -198,7 +208,7 @@ function updateRelativeImportsForExtensions(
                 const sourceParts = sourceRelativeDir.split('/').filter((part) => part !== '');
 
                 // Parse the relative import path
-                const relativePath = importPath.replace(/\.(js|ts)$/, '');
+                const relativePath = removeFileExtension(importPath);
                 const importParts = relativePath.split('/');
 
                 // Start from the current directory (sourceParts)
@@ -229,7 +239,7 @@ function updateRelativeImportsForExtensions(
 
       // Fallback to modelImportSource for ./ imports only
       if (!absoluteImportPath && importPath.startsWith('./') && options?.modelImportSource) {
-        const filePath = importPath.replace('./', '').replace(/\.(js|ts)$/, '');
+        const filePath = removeFileExtension(removeSameDirPrefix(importPath));
         absoluteImportPath = `${options.modelImportSource}/${filePath}`;
       }
 
@@ -344,7 +354,7 @@ export function createExtensionFromOriginalFile(
 
       // For non-type exports, remove the export keyword but keep the content
       // Simply replace "export " with empty string
-      const contentWithoutExport = exportText.replace(/^export\s+/, '');
+      const contentWithoutExport = exportText.replace(EXPORT_KEYWORD_REGEX, '');
       debugLog(options, `Removing export keyword, keeping content: ${contentWithoutExport.substring(0, 50)}...`);
       modifiedSource = modifiedSource.replace(exportText, contentWithoutExport);
     }
@@ -365,8 +375,8 @@ export function createExtensionFromOriginalFile(
     modifiedSource = modifiedSource.trim() + '\n\n' + extensionCode;
 
     // Clean up any stray export keywords
-    modifiedSource = modifiedSource.replace(/export\s+default\s*$/gm, '');
-    modifiedSource = modifiedSource.replace(/export\s*$/gm, '');
+    modifiedSource = modifiedSource.replace(EXPORT_DEFAULT_LINE_END_REGEX, '');
+    modifiedSource = modifiedSource.replace(EXPORT_LINE_END_REGEX, '');
 
     debugLog(options, `Generated extension code (first 200 chars): ${modifiedSource.substring(0, 200)}...`);
     debugLog(options, `Extension code to add: ${extensionCode.substring(0, 200)}...`);
