@@ -747,4 +747,102 @@ export default class TestModel extends BaseModel {
       }
     `);
   });
+
+  it('regression: ember-data import without default import is respected', async () => {
+    prepareFiles(tempDir, {
+      'app/models/typed.ts': `
+   import { attr, hasMany } from '@ember-data/model';
+   import BaseModel from 'soxhub-client/core/base-model';
+
+   export default class MaturityScale extends BaseModel {
+    @attr('string') declare name: string;
+    @attr('string') declare description: string;
+    @attr('boolean') declare isForControlsAssessment: boolean;
+
+    @hasMany('framework', {
+     async: false,
+     inverse: 'maturityScale',
+    })
+    declare frameworks: Framework[];
+   }
+`,
+    });
+
+    await runMigration({
+      ...options,
+      emberDataImportSource: '@ember-data/model',
+      baseModel: {
+        import: 'soxhub-client/core/base-model',
+        extension: 'static-base-model-extension',
+        trait: 'static-base-model-trait',
+      }
+    });
+    const dataDir = join(tempDir, 'app/data');
+    expect(collectFilesSnapshot(dataDir)['resources/typed.schema.ts']).toBeTruthy();
+    expect(collectFilesSnapshot(dataDir)).toMatchInlineSnapshot(`
+      {
+        "extensions/": "__dir__",
+        "resources/": "__dir__",
+        "resources/typed.schema.ts": "
+      export const TypedSchema = {
+        'type': 'typed',
+        'legacy': true,
+        'identity': {
+          'kind': '@id',
+          'name': 'id'
+        },
+        'fields': [
+          {
+            'kind': 'attribute',
+            'name': 'name',
+            'type': 'string'
+          },
+          {
+            'kind': 'attribute',
+            'name': 'description',
+            'type': 'string'
+          },
+          {
+            'kind': 'attribute',
+            'name': 'isForControlsAssessment',
+            'type': 'boolean'
+          },
+          {
+            'kind': 'hasMany',
+            'name': 'frameworks',
+            'type': 'framework',
+            'options': {
+              'async': false,
+              'inverse': 'maturityScale'
+            }
+          }
+        ],
+        'traits': [
+          'static-base-model-trait'
+        ],
+        'objectExtensions': [
+          'static-base-model-extension'
+        ]
+      };",
+        "resources/typed.schema.types.ts": "
+      import type { Type } from '@ember-data/core-types/symbols';
+      import type { Framework } from 'test-app/data/resources/framework.schema.types';
+      import type { HasMany } from '@ember-data/model';
+      import type { StaticBaseModelTraitTrait } from 'test-app/data/traits/static-base-model-trait.schema.types';
+
+      export interface Typed extends StaticBaseModelTraitTrait {
+      	readonly [Type]: 'typed';
+      	readonly name: string | null;
+      	readonly description: string | null;
+      	readonly isForControlsAssessment: boolean | null;
+      	readonly frameworks: HasMany<Framework>;
+      }
+      ",
+        "traits/": "__dir__",
+      }
+    `);
+  });
+
 });
+
+

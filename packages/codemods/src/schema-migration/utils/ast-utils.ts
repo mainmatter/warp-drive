@@ -1949,26 +1949,15 @@ export function findEmberImportLocalName(
         continue;
       }
 
-      debugLog(options, `Import clause kind: ${importClause.kind()}, text: ${importClause.text()}`);
-
-      // For mixed imports like "import Model, { attr } from '@ember-data/model'",
-      // we need to find the default import which comes before the named imports
-      const identifiers = importClause.findAll({ rule: { kind: 'identifier' } });
-
-      debugLog(options, `Found ${identifiers.length} identifiers in import clause`);
-      for (const id of identifiers) {
-        debugLog(options, `Identifier: ${id.text()}`);
+      const children = importClause.children();
+      const firstChild = children[0];
+      // Only return a local name if there's an actual default import (first child is identifier)
+      if (firstChild && firstChild.kind() === 'identifier') {
+        const localName = firstChild.text();
+        return localName;
       }
 
-      // The first identifier should be the default import
-      if (identifiers.length > 0) {
-        const defaultImport = identifiers[0];
-        if (defaultImport) {
-          const localName = defaultImport.text();
-          debugLog(options, `Found import with local name: ${localName}`);
-          return localName;
-        }
-      }
+      debugLog(options, 'No default import found (only named imports)');
     }
 
     // Check if this is a relative import that points to a model file
@@ -1983,14 +1972,13 @@ export function findEmberImportLocalName(
 
             const importClause = importNode.children().find((child) => child.kind() === 'import_clause');
             if (importClause) {
-              const identifiers = importClause.findAll({ rule: { kind: 'identifier' } });
-              if (identifiers.length > 0) {
-                const defaultImport = identifiers[0];
-                if (defaultImport) {
-                  const localName = defaultImport.text();
-                  debugLog(options, `Found relative model import with local name: ${localName}`);
-                  return localName;
-                }
+              // Only return a local name if there's an actual default import
+              const children = importClause.children();
+              const firstChild = children[0];
+              if (firstChild && firstChild.kind() === 'identifier') {
+                const localName = firstChild.text();
+                debugLog(options, `Found relative model import with local name: ${localName}`);
+                return localName;
               }
             }
           }
