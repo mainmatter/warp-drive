@@ -2,23 +2,10 @@ import type { SgNode } from '@ast-grep/napi';
 import { Lang, parse } from '@ast-grep/napi';
 
 import type { TransformOptions } from '../config.js';
-import { parseObjectPropertiesFromNode } from './ast-helpers.js';
+import { parseObjectLiteralFromNode } from './ast-helpers.js';
 import { debugLog } from './logging.js';
 import { removeQuotes, toPascalCase } from './path-utils.js';
 import type { ExtractedType } from './type-utils.js';
-
-/**
- * Parse an object literal from an AST node directly
- * Wrapper around parseObjectPropertiesFromNode with error handling
- */
-function parseObjectLiteralFromNodeInternal(objectNode: SgNode): Record<string, unknown> {
-  try {
-    return parseObjectPropertiesFromNode(objectNode);
-  } catch {
-    // Return empty object if parsing fails
-    return {};
-  }
-}
 
 /**
  * Shared artifact interface for both transforms
@@ -190,7 +177,7 @@ function parseSchemaFieldOptions(optionsNode: SgNode | undefined): Record<string
   }
 
   try {
-    return parseObjectLiteralFromNodeInternal(optionsNode);
+    return parseObjectLiteralFromNode(optionsNode);
   } catch {
     return {};
   }

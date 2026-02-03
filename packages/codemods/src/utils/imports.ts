@@ -1,7 +1,33 @@
-import type { ASTPath, Collection, FileInfo, ImportDeclaration, ImportSpecifier, JSCodeshift } from 'jscodeshift';
+import type {
+  ASTPath,
+  Collection,
+  FileInfo,
+  Identifier,
+  ImportDeclaration,
+  ImportSpecifier,
+  JSCodeshift,
+  JSXIdentifier,
+  TSTypeParameter,
+} from 'jscodeshift';
 
 import { log } from '../legacy-compat-builders/log.js';
 import { TransformError } from './error.js';
+
+type IdentifierLike = Identifier | JSXIdentifier | TSTypeParameter;
+
+/**
+ * Extracts a string name from an identifier-like node, handling both
+ * string names and nested name objects.
+ */
+function getIdentifierName(node: IdentifierLike | null | undefined): string {
+  if (!node) return '';
+  if (typeof node.name === 'string') {
+    return node.name;
+  }
+  // Handle cases where name is an object with a name property
+  const nameObj = node.name as { name?: string } | undefined;
+  return String(nameObj?.name || node.name || '');
+}
 
 /**
  * Information about an import you are tracking for your codemod.
@@ -46,26 +72,15 @@ export function parseExistingImports(
     path.value.specifiers?.forEach((specifier) => {
       switch (specifier.type) {
         case 'ImportSpecifier': {
-          const localName =
-            typeof specifier.local?.name === 'string'
-              ? specifier.local.name
-              : String(specifier.local?.name?.name || '');
-          const importedName =
-            typeof specifier.imported.name === 'string'
-              ? specifier.imported.name
-              : String(specifier.imported.name?.name || specifier.imported.name);
+          const localName = getIdentifierName(specifier.local);
+          const importedName = getIdentifierName(specifier.imported);
           knownSpecifierNames.add(localName || importedName);
           break;
         }
         case 'ImportDefaultSpecifier':
         case 'ImportNamespaceSpecifier': {
-          if (specifier.local) {
-            const localName =
-              typeof specifier.local?.name === 'string'
-                ? specifier.local.name
-                : String(specifier.local?.name?.name || specifier.local?.name || '');
-            if (localName) knownSpecifierNames.add(localName);
-          }
+          const localName = getIdentifierName(specifier.local);
+          if (localName) knownSpecifierNames.add(localName);
           break;
         }
       }
@@ -108,12 +123,7 @@ function parseImport(path: ASTPath<ImportDeclaration>, importInfo: ImportInfo): 
 
   return match
     ? {
-        localName: String(
-          (typeof match.local?.name === 'string' ? match.local.name : match.local?.name?.name || match.local?.name) ??
-            (typeof match.imported.name === 'string'
-              ? match.imported.name
-              : match.imported.name?.name || match.imported.name)
-        ),
+        localName: getIdentifierName(match.local) || getIdentifierName(match.imported),
         specifier: match,
         path,
       }

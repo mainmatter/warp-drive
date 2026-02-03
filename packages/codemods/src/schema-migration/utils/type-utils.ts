@@ -1,26 +1,13 @@
 import type { SgNode } from '@ast-grep/napi';
 
 import type { TransformOptions } from '../config.js';
-import { parseObjectPropertiesFromNode } from './ast-helpers.js';
+import { parseObjectLiteralFromNode } from './ast-helpers.js';
 import { DEFAULT_EMBER_DATA_SOURCE, DEFAULT_MIXIN_SOURCE } from './import-utils.js';
 import { debugLog } from './logging.js';
 import { removeQuotes, toPascalCase } from './path-utils.js';
 
 // Re-export constants for backward compatibility
 export { DEFAULT_EMBER_DATA_SOURCE, DEFAULT_MIXIN_SOURCE };
-
-/**
- * Parse an object literal from an AST node directly
- * Wrapper around parseObjectPropertiesFromNode with error handling
- */
-function parseObjectLiteralFromNodeInternal(objectNode: SgNode): Record<string, unknown> {
-  try {
-    return parseObjectPropertiesFromNode(objectNode);
-  } catch {
-    // Return empty object if parsing fails
-    return {};
-  }
-}
 
 /**
  * Built-in type mappings for EmberData transforms
@@ -233,7 +220,7 @@ function parseDecoratorOptions(optionsNode: SgNode | undefined): ParsedDecorator
   }
 
   try {
-    const parsedOptions = parseObjectLiteralFromNodeInternal(optionsNode);
+    const parsedOptions = parseObjectLiteralFromNode(optionsNode);
     return {
       hasDefaultValue: 'defaultValue' in parsedOptions,
       allowNull: parsedOptions.allowNull !== 'false',

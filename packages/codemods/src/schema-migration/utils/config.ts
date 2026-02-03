@@ -327,23 +327,25 @@ export function validateConfigForTransform(
 }
 
 /**
- * Resolve relative paths in configuration options relative to a base directory
- * @param config The configuration options
- * @param baseDir The base directory to resolve relative paths against (typically the config file's directory)
+ * List of config properties that contain paths
  */
-export function resolveConfigPaths(config: ConfigOptions, baseDir: string): ConfigOptions {
+const PATH_PROPERTIES: Array<keyof ConfigOptions> = [
+  'traitsDir',
+  'extensionsDir',
+  'resourcesDir',
+  'modelSourceDir',
+  'mixinSourceDir',
+];
+
+/**
+ * Internal helper to resolve paths in configuration options relative to a base directory
+ * @param config The configuration options
+ * @param baseDir The base directory to resolve relative paths against
+ */
+function resolvePathsInternal(config: ConfigOptions, baseDir: string): ConfigOptions {
   const resolved = { ...config };
 
-  // List of config properties that contain paths
-  const pathProperties: Array<keyof ConfigOptions> = [
-    'traitsDir',
-    'extensionsDir',
-    'resourcesDir',
-    'modelSourceDir',
-    'mixinSourceDir',
-  ];
-
-  for (const prop of pathProperties) {
+  for (const prop of PATH_PROPERTIES) {
     const value = resolved[prop];
     if (typeof value === 'string' && value) {
       // If the path is relative, resolve it relative to the base directory
@@ -372,46 +374,19 @@ export function resolveConfigPaths(config: ConfigOptions, baseDir: string): Conf
 }
 
 /**
+ * Resolve relative paths in configuration options relative to a base directory
+ * @param config The configuration options
+ * @param baseDir The base directory to resolve relative paths against (typically the config file's directory)
+ */
+export function resolveConfigPaths(config: ConfigOptions, baseDir: string): ConfigOptions {
+  return resolvePathsInternal(config, baseDir);
+}
+
+/**
  * Normalize directory paths from CLI arguments
  * @param options The configuration options from CLI
  * @param cwd The current working directory
  */
 export function normalizeCliPaths(options: ConfigOptions, cwd: string = process.cwd()): ConfigOptions {
-  const normalized = { ...options };
-
-  // List of config properties that contain paths
-  const pathProperties: Array<keyof ConfigOptions> = [
-    'traitsDir',
-    'extensionsDir',
-    'resourcesDir',
-    'modelSourceDir',
-    'mixinSourceDir',
-  ];
-
-  for (const prop of pathProperties) {
-    const value = normalized[prop];
-    if (typeof value === 'string' && value) {
-      // If the path is relative, resolve it relative to cwd
-      if (!isAbsolute(value)) {
-        (normalized as Record<string, unknown>)[prop] = resolve(cwd, value);
-      }
-    }
-  }
-
-  // Handle additionalModelSources and additionalMixinSources arrays
-  if (normalized.additionalModelSources) {
-    normalized.additionalModelSources = normalized.additionalModelSources.map((source) => ({
-      ...source,
-      dir: isAbsolute(source.dir) ? source.dir : resolve(cwd, source.dir),
-    }));
-  }
-
-  if (normalized.additionalMixinSources) {
-    normalized.additionalMixinSources = normalized.additionalMixinSources.map((source) => ({
-      ...source,
-      dir: isAbsolute(source.dir) ? source.dir : resolve(cwd, source.dir),
-    }));
-  }
-
-  return normalized;
+  return resolvePathsInternal(options, cwd);
 }

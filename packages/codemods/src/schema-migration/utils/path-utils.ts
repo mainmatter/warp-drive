@@ -2,19 +2,25 @@ import type { Lang } from '@ast-grep/napi';
 import { Lang as AstLang } from '@ast-grep/napi';
 
 /**
+ * Extract the file name (without extension) from a file path
+ */
+function extractFileNameWithoutExtension(filePath: string): string {
+  const fileName = filePath.split('/').pop() || filePath.split('\\').pop() || 'unknown';
+  return fileName.replace(/\.(js|ts)$/, '');
+}
+
+/**
  * Extract kebab-case base name (without extension) from a file path
  */
 export function extractBaseName(filePath: string): string {
-  const fileName = filePath.split('/').pop() || filePath.split('\\').pop() || 'unknown';
-  return fileName.replace(/\.(js|ts)$/, '');
+  return extractFileNameWithoutExtension(filePath);
 }
 
 /**
  * Extract camelCase name from file path (kebab-case to camelCase conversion)
  */
 export function extractCamelCaseName(filePath: string): string {
-  const fileName = filePath.split('/').pop() || filePath.split('\\').pop() || 'unknown';
-  const baseName = fileName.replace(/\.(js|ts)$/, '');
+  const baseName = extractFileNameWithoutExtension(filePath);
 
   // Convert kebab-case to camelCase for valid JavaScript identifier
   // test-plannable -> testPlannable
@@ -26,8 +32,7 @@ export function extractCamelCaseName(filePath: string): string {
  * user-profile -> UserProfile
  */
 export function extractPascalCaseName(filePath: string): string {
-  const fileName = filePath.split('/').pop() || filePath.split('\\').pop() || 'unknown';
-  const baseName = fileName.replace(/\.(js|ts)$/, '');
+  const baseName = extractFileNameWithoutExtension(filePath);
 
   return baseName
     .split('-')
