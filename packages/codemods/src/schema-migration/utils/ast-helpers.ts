@@ -5,7 +5,7 @@ import type { TransformOptions } from '../config.js';
 import { isMixinImportPath, isSpecialMixinImport } from './import-utils.js';
 import { debugLog } from './logging.js';
 import { getLanguageFromPath, removeQuotes } from './path-utils.js';
-import { JSDOC_COMMENT_REGEX, MIXIN_SUFFIX_REGEX } from './string.js';
+import { MIXIN_SUFFIX_REGEX } from './string.js';
 
 /**
  * Find all export statements
@@ -219,37 +219,6 @@ export function parseObjectLiteral(objectText: string): Record<string, unknown> 
     // Return empty object if parsing fails
     return {};
   }
-}
-
-/**
- * Extract JSDoc comments from an AST node
- */
-export function extractJSDocComment(node: SgNode): string | undefined {
-  // Look for JSDoc comments (/** ... */) preceding the node
-  // We need to check the source text around the node's position
-  // Get the source text from the parent context
-  let currentNode = node;
-  while (currentNode.parent()) {
-    currentNode = currentNode.parent()!;
-  }
-  const source = currentNode.text();
-  const nodeText = node.text();
-  const nodeIndex = source.indexOf(nodeText);
-
-  if (nodeIndex === -1) return undefined;
-
-  // Look backwards from the node to find JSDoc comments
-  const textBeforeNode = source.substring(0, nodeIndex);
-
-  // Match JSDoc comments - /** ... */ with potential whitespace/newlines
-  const match = textBeforeNode.match(JSDOC_COMMENT_REGEX);
-
-  if (match) {
-    // Clean up the JSDoc comment - remove /** */ and normalize whitespace
-    return match[0].trim();
-  }
-
-  return undefined;
 }
 
 /**

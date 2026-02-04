@@ -7,14 +7,12 @@ import type { TransformOptions } from '../config.js';
 import type { ExtractedType, PropertyInfo, SchemaFieldForType, TransformArtifact } from '../utils/ast-utils.js';
 import {
   createExtensionFromOriginalFile,
-  createTypeArtifact,
   debugLog,
   DEFAULT_EMBER_DATA_SOURCE,
   DEFAULT_MIXIN_SOURCE,
   detectQuoteStyle,
   extractBaseName,
   extractCamelCaseName,
-  extractJSDocTypes,
   extractTypeFromMethod,
   extractTypesFromInterface,
   findAssociatedInterface,
@@ -51,7 +49,7 @@ import {
   NODE_KIND_VARIABLE_DECLARATOR,
   parseObjectPropertiesFromNode,
 } from '../utils/code-processing.js';
-import { mixinNameToKebab, pascalToKebab, TRAIT_SUFFIX_REGEX } from '../utils/string.js';
+import { mixinNameToKebab, pascalToKebab } from '../utils/string.js';
 
 /** Mixin.create() method name */
 const MIXIN_METHOD_CREATE = 'create';
@@ -881,12 +879,9 @@ function extractTraitFields(
       // Extract the actual property name (remove quotes if present)
       fieldName = extractFieldNameFromKey(originalKey);
 
-      // Try to get type from associated interface first
+      // Try to get type from associated interface
       if (interfaceTypes.has(fieldName)) {
         typeInfo = interfaceTypes.get(fieldName);
-      } else {
-        // Look for JSDoc type annotations
-        typeInfo = extractJSDocTypes(property, options) ?? undefined;
       }
     }
 
@@ -1008,39 +1003,6 @@ function generateLegacyTrait(
   }
 
   // Return only the export block; do not modify imports or other code
-  return generateExportStatement(traitName, legacyTrait);
-}
-
-/** Generate only the trait code block */
-function generateTraitCode(
-  traitName: string,
-  traitFields: Array<{ name: string; kind: string; type?: string; options?: Record<string, unknown> }>,
-  extendedTraits: string[] = []
-): string {
-  const traitInternalName = traitName.replace(TRAIT_SUFFIX_REGEX, '');
-  // Convert to dasherized format for the name property
-  const dasherizedName = pascalToKebab(traitInternalName);
-
-  const legacyTrait: Record<string, unknown> = {
-    name: dasherizedName,
-    mode: 'legacy',
-    fields: traitFields.map((field) => {
-      const result: Record<string, unknown> = { name: field.name, kind: field.kind };
-      if (field.type) {
-        result.type = field.type;
-      }
-      if (field.options) {
-        result.options = field.options;
-      }
-      return result;
-    }),
-  };
-
-  // Add traits property if this trait extends other traits
-  if (extendedTraits.length > 0) {
-    legacyTrait.traits = extendedTraits;
-  }
-
   return generateExportStatement(traitName, legacyTrait);
 }
 

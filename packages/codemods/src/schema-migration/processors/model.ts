@@ -3,17 +3,11 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { dirname, join, resolve } from 'path';
 
 import type { TransformOptions } from '../config.js';
-import type {
-  MergedSchemaOptions,
-  MergedTraitSchemaOptions,
-  SchemaField,
-  TransformArtifact,
-} from '../utils/ast-utils.js';
+import type { SchemaField, TransformArtifact } from '../utils/ast-utils.js';
 import {
   buildLegacySchemaObject,
   convertToSchemaField,
   createExtensionFromOriginalFile,
-  createTypeArtifact,
   debugLog,
   DEFAULT_EMBER_DATA_SOURCE,
   detectQuoteStyle,
@@ -31,22 +25,17 @@ import {
   generateMergedSchemaCode,
   generateMergedTraitSchemaCode,
   generateTraitImport,
-  generateTraitSchemaCode,
   getEmberDataImports,
   getExportedIdentifier,
   getFileExtension,
   getLanguageFromPath,
   getMixinImports,
-  getTypeScriptTypeForAttribute,
-  getTypeScriptTypeForBelongsTo,
-  getTypeScriptTypeForHasMany,
   isModelFile,
   mixinNameToTraitName,
   parseDecoratorArgumentsWithNodes,
   schemaFieldToTypeScriptType,
   toPascalCase,
   transformModelToResourceImport,
-  traitNameToInterfaceName,
   withTransformWrapper,
 } from '../utils/ast-utils.js';
 import {
@@ -652,21 +641,7 @@ function generateRegularModelArtifacts(
   analysis: ModelAnalysisResult,
   options: TransformOptions
 ): TransformArtifact[] {
-  const {
-    schemaFields,
-    extensionProperties,
-    mixinTraits,
-    mixinExtensions,
-    modelName,
-    baseName,
-    defaultExportNode,
-    isFragment,
-  } = analysis;
-
-  // Parse the source to get the root node for class detection
-  const language = getLanguageFromPath(filePath);
-  const ast = parse(language, source);
-  const root = ast.root();
+  const { schemaFields, extensionProperties, mixinTraits, mixinExtensions, modelName, baseName, isFragment } = analysis;
 
   const artifacts: TransformArtifact[] = [];
 
@@ -793,37 +768,13 @@ function generateRegularModelArtifacts(
     const extensionSignatureType = `${modelName}ExtensionSignature`;
     const extensionClassName = `${modelName}Extension`;
 
-    // Check if the extension file is TypeScript or JavaScript
+    // Check if the extension file is TypeScript
     const isExtensionTypeScript = extensionArtifact.suggestedFileName.endsWith('.ts');
 
     if (isExtensionTypeScript) {
       // Generate TypeScript type alias
       const signatureCode = `export type ${extensionSignatureType} = typeof ${extensionClassName};`;
       extensionArtifact.code += '\n\n' + signatureCode;
-    } else {
-      // For JavaScript files, generate the @this {Type} pattern with base class
-      const jsdocCode = generateJavaScriptExtensionJSDoc(extensionClassName, modelInterfaceName, modelImportPath);
-
-      // Check if the base class pattern is already present to avoid duplication
-      if (!extensionArtifact.code.includes('const Base = class {};')) {
-        // Add the JSDoc comments and base class before the existing class declaration
-        // and modify the class to extend Base
-        extensionArtifact.code = extensionArtifact.code.replace(
-          `export class ${extensionClassName} {`,
-          `${jsdocCode}
-export class ${extensionClassName} extends Base {`
-        );
-      } else {
-        // Just modify the class to extend Base if the pattern is already there
-        extensionArtifact.code = extensionArtifact.code.replace(
-          `export class ${extensionClassName} {`,
-          `export class ${extensionClassName} extends Base {`
-        );
-      }
-
-      // Add the signature typedef at the end of the file
-      const signatureTypedef = `/** @typedef {typeof ${extensionClassName}} ${extensionSignatureType} */`;
-      extensionArtifact.code += '\n\n' + signatureTypedef;
     }
   }
 
@@ -1067,20 +1018,16 @@ function generateIntermediateModelTraitArtifacts(
       const extensionSignatureType = `${traitPascalName}ExtensionSignature`;
       const extensionClassName = `${traitPascalName}Extension`;
 
-      // Check if the extension file is TypeScript or JavaScript
+      // Check if the extension file is TypeScript
       const isExtensionTypeScript = extensionArtifact.suggestedFileName.endsWith('.ts');
 
-      let signatureCode: string;
       if (isExtensionTypeScript) {
         // Generate TypeScript type alias
-        signatureCode = `export type ${extensionSignatureType} = typeof ${extensionClassName};`;
-      } else {
-        // Generate JSDoc type alias for JavaScript files
-        signatureCode = `/** @typedef {typeof ${extensionClassName}} ${extensionSignatureType} */`;
-      }
+        const signatureCode = `export type ${extensionSignatureType} = typeof ${extensionClassName};`;
 
-      // Add the signature type alias to the extension file
-      extensionArtifact.code += '\n\n' + signatureCode;
+        // Add the signature type alias to the extension file
+        extensionArtifact.code += '\n\n' + signatureCode;
+      }
     }
   }
 
@@ -1915,26 +1862,6 @@ function extractMixinTraits(
 }
 
 /**
- * Extract kebab-case base name (without extension) from a path
- */
-
-/**
- * Generate JSDoc pattern for JavaScript extensions with proper type merging
- */
-function generateJavaScriptExtensionJSDoc(
-  extensionClassName: string,
-  modelInterfaceName: string,
-  modelImportPath: string
-): string {
-  return `// The following is a workaround for the fact that we can't properly do
-// declaration merging in .js files. If this is converted to a .ts file,
-// we can remove this and just use the declaration merging.
-/** @import { ${modelInterfaceName} } from '${modelImportPath}' */
-/** @type {{ new(): ${modelInterfaceName} }} */
-const Base = class {};`;
-}
-
-/**
  * Generate LegacyResourceSchema object
  */
 function generateLegacyResourceSchema(
@@ -2011,28 +1938,4 @@ function transformModelImportsInSource(source: string, root: SgNode): string {
   }
 
   return result;
-}
-
-/** Generate schema code - only contains necessary imports for schema references and the schema export */
-function generateSchemaCode(
-  schemaName: string,
-  type: string,
-  schemaFields: SchemaField[],
-  mixinTraits: string[],
-  mixinExtensions: string[],
-  originalSource: string,
-  defaultExportNode: SgNode | null,
-  root: SgNode,
-  isFragment?: boolean
-): string {
-  const legacySchema = buildLegacySchemaObject(type, schemaFields, mixinTraits, mixinExtensions, isFragment);
-
-  // Detect quote style from original source
-  const useSingleQuotes = detectQuoteStyle(originalSource) === 'single';
-  const exportStatement = generateExportStatement(schemaName, legacySchema, useSingleQuotes);
-
-  // For now, schema files should only contain the schema export
-  // In the future, we may need to analyze the schema for complex default values
-  // that require imports, but currently schemas don't have complex default values
-  return exportStatement;
 }

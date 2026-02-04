@@ -745,9 +745,9 @@ export default class TestModel extends Model {
       const result = transform('app/models/test.ts', input, DEFAULT_TEST_OPTIONS);
 
       // Should transform relative imports to schema type imports
-      expect(result).toContain("import type { AuditableEntity } from './auditable-entity.schema.types';");
+      expect(result).toContain("import type { AuditableEntity } from './auditable-entity.schema';");
       expect(result).toContain(
-        "import type { AutomationWorkflowVersion } from './automation-workflow-version.schema.types';"
+        "import type { AutomationWorkflowVersion } from './automation-workflow-version.schema';"
       );
 
       // Should preserve non-relative imports
@@ -756,8 +756,8 @@ export default class TestModel extends Model {
       );
 
       // Should not contain bad import paths with double extensions
-      expect(result).not.toContain('.ts.schema.types');
-      expect(result).not.toContain('.js.schema.types');
+      expect(result).not.toContain('.ts.schema');
+      expect(result).not.toContain('.js.schema');
       expect(result).not.toContain("import type AuditableEntity from './auditable-entity';");
       expect(result).not.toContain("import type AutomationWorkflowVersion from './automation-workflow-version';");
 
@@ -780,7 +780,7 @@ export default class TestModel extends Model {
       const result = transform('app/models/test.ts', input, DEFAULT_TEST_OPTIONS);
 
       // Should only transform default type imports with relative paths
-      expect(result).toContain("import type { SomeType } from './some-type.schema.types';");
+      expect(result).toContain("import type { SomeType } from './some-type.schema';");
 
       // Should not transform non-type imports
       expect(result).toContain("import { someFunction } from './some-utility';");
@@ -825,8 +825,8 @@ export default class TestModel extends Model.extend(WorkstreamableMixin) {
 
       expect(schemaType.code).toMatchInlineSnapshot(`
         "import type { Type } from '@ember-data/core-types/symbols';
-        import type { WorkstreamableTrait as Workstreamable } from '../traits/workstreamable.schema.types';
-        import type { WorkstreamableTrait } from '../traits/workstreamable.schema.types';
+        import type { WorkstreamableTrait as Workstreamable } from '../traits/workstreamable.schema';
+        import type { WorkstreamableTrait } from '../traits/workstreamable.schema';
 
         export interface TestModel extends WorkstreamableTrait {
         	readonly [Type]: 'test-model';
@@ -1046,7 +1046,7 @@ export default class Translatable extends Model {
         // The following is a workaround for the fact that we can't properly do
         // declaration merging in .js files. If this is converted to a .ts file,
         // we can remove this and just use the declaration merging.
-        /** @import { TestModel } from 'test-app/data/resources/test-model.schema.types' */
+        /** @import { TestModel } from 'test-app/data/resources/test-model.schema' */
         /** @type {{ new(): TestModel }} */
         const Base = class {};
         export class TestModelExtension extends Base {
@@ -1137,7 +1137,7 @@ export default class Amendment extends Model {
 
         const INTERNAL_HELPER = 'helper';
 
-        import type { Amendment } from 'test-app/data/resources/amendment.schema.types';
+        import type { Amendment } from 'test-app/data/resources/amendment.schema';
 
         export interface AmendmentExtension extends Amendment {}
 
@@ -1216,7 +1216,7 @@ export default class Task extends Model {
 
         export type Priority = 'low' | 'medium' | 'high';
 
-        import type { Task } from 'test-app/data/resources/task.schema.types';
+        import type { Task } from 'test-app/data/resources/task.schema';
 
         export interface TaskExtension extends Task {}
 

@@ -43,7 +43,6 @@ export {
   extractTypeFromDeclaration,
   extractTypeFromDecorator,
   extractTypeFromMethod,
-  extractJSDocTypes,
   extractTypesFromInterface,
 } from './type-utils.js';
 export type { ExtractedType, SchemaFieldForType } from './type-utils.js';
@@ -58,7 +57,6 @@ export {
   parseObjectLiteralFromNode,
   parseObjectPropertiesFromNode,
   parseObjectLiteral,
-  extractJSDocComment,
   extractExistingImports,
   withTransformWrapper,
   findAssociatedInterface,
@@ -75,7 +73,6 @@ export {
   generateTraitSchemaCode,
   convertToSchemaField,
   generateInterfaceCode,
-  generateJSDocInterface,
   createTypeArtifact,
   createExtensionArtifact,
   createExtensionArtifactWithTypes,

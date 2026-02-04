@@ -112,9 +112,6 @@ export const EXPORT_DEFAULT_LINE_END_REGEX = /export\s+default\s*$/gm;
 /** Matches 'export' at end of line */
 export const EXPORT_LINE_END_REGEX = /export\s*$/gm;
 
-/** Matches JSDoc comments at end of string, allowing whitespace and newlines */
-export const JSDOC_COMMENT_REGEX = /\/\*\*[\s\S]*?\*\/\s*$/;
-
 /**
  * Capitalizes the first letter of a matched word (for use with replace callback)
  */

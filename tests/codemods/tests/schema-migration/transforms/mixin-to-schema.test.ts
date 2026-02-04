@@ -766,13 +766,13 @@ export default Mixin.create({
 
       const fileStub = stubArtifacts.find((a) => a.name === 'File');
       expect(fileStub).toBeDefined();
-      expect(fileStub?.suggestedFileName).toBe('file.schema.types.ts');
+      expect(fileStub?.suggestedFileName).toBe('file.schema.ts');
       expect(fileStub?.code).toContain('export interface File');
       expect(fileStub?.code).toContain('// Stub interface for File - generated automatically');
 
       const userStub = stubArtifacts.find((a) => a.name === 'User');
       expect(userStub).toBeDefined();
-      expect(userStub?.suggestedFileName).toBe('user.schema.types.ts');
+      expect(userStub?.suggestedFileName).toBe('user.schema.ts');
       expect(userStub?.code).toContain('export interface User');
       expect(userStub?.code).toContain('// Stub interface for User - generated automatically');
     });

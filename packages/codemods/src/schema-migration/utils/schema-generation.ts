@@ -1,9 +1,7 @@
 import type { SgNode } from '@ast-grep/napi';
-import { Lang, parse } from '@ast-grep/napi';
 
 import type { TransformOptions } from '../config.js';
 import { parseObjectLiteralFromNode } from './ast-helpers.js';
-import { debugLog } from './logging.js';
 import { removeQuotes, toPascalCase } from './path-utils.js';
 import type { ExtractedType } from './type-utils.js';
 
@@ -339,37 +337,6 @@ export function generateInterfaceCode(
 }
 
 /**
- * Generate JSDoc interface for JavaScript files
- */
-export function generateJSDocInterface(
-  interfaceName: string,
-  properties: Array<{
-    name: string;
-    type: string;
-    readonly?: boolean;
-    optional?: boolean;
-    comment?: string;
-  }>
-): string {
-  const lines: string[] = [];
-
-  lines.push('/**');
-  lines.push(` * @typedef {Object} ${interfaceName}`);
-
-  for (const prop of properties) {
-    const optional = prop.optional ? '?' : '';
-    const readonly = prop.readonly ? 'readonly ' : '';
-    const comment = prop.comment ? ` - ${prop.comment}` : '';
-    lines.push(` * @property {${prop.type}} ${readonly}${prop.name}${optional}${comment}`);
-  }
-
-  lines.push(' */');
-  lines.push('');
-
-  return lines.join('\n');
-}
-
-/**
  * Create type artifact for interfaces
  */
 export function createTypeArtifact(
@@ -568,33 +535,6 @@ export function traitNameToImportPath(traitName: string, appPrefix: string): str
 }
 
 /**
- * Generate JSDoc @import statements for JavaScript files
- */
-function generateJSDocImports(imports: Set<string>): string {
-  if (imports.size === 0) return '';
-
-  const lines: string[] = ['/**'];
-
-  for (const importStatement of imports) {
-    // Parse the import statement to extract what we need
-    // Expected format: "type { TypeName } from 'path'" or "{ TypeName } from 'path'"
-    const match = importStatement.match(/(?:type\s+)?{\s*([^}]+)\s*}\s+from\s+['"]([^'"]+)['"]/);
-    if (match) {
-      const types = match[1].split(',').map((t) => t.trim());
-      const path = match[2];
-      for (const typeName of types) {
-        // Handle "Foo as Bar" renaming
-        const actualType = typeName.split(' as ')[0].trim();
-        lines.push(` * @import { ${actualType} } from "${path}"`);
-      }
-    }
-  }
-
-  lines.push(' */');
-  return lines.join('\n');
-}
-
-/**
  * Generate TypeScript import statements
  */
 function generateTypeScriptImports(imports: Set<string>): string {
@@ -678,43 +618,6 @@ function generateInterfaceOnly(
 }
 
 /**
- * Generate JSDoc @typedef for JavaScript files with trait composition
- */
-function generateJSDocTypedef(
-  interfaceName: string,
-  properties: Array<{
-    name: string;
-    type: string;
-    readonly?: boolean;
-    optional?: boolean;
-    comment?: string;
-  }>,
-  traitInterfaces?: string[]
-): string {
-  const lines: string[] = [];
-
-  // Build the property object type
-  const propLines: string[] = [];
-  for (const prop of properties) {
-    const readonly = prop.readonly ? 'readonly ' : '';
-    const optional = prop.optional ? '?' : '';
-    propLines.push(`  ${readonly}${prop.name}${optional}: ${prop.type};`);
-  }
-
-  const propsType = `{\n${propLines.join('\n')}\n}`;
-
-  // If we have traits, create an intersection type
-  if (traitInterfaces && traitInterfaces.length > 0) {
-    const traitTypes = traitInterfaces.join(' & ');
-    lines.push(`/** @typedef {${traitTypes} & ${propsType}} ${interfaceName} */`);
-  } else {
-    lines.push(`/** @typedef {${propsType}} ${interfaceName} */`);
-  }
-
-  return lines.join('\n');
-}
-
-/**
  * Generate a merged schema file containing both the schema object and type interface
  * This creates a single .schema.js or .schema.ts file with everything needed
  */
@@ -732,14 +635,9 @@ export function generateMergedSchemaCode(opts: MergedSchemaOptions): string {
 
   const sections: string[] = [];
 
-  // Generate imports section
+  // Generate imports section (only for TypeScript)
   if (isTypeScript) {
     const importsCode = generateTypeScriptImports(imports);
-    if (importsCode) {
-      sections.push(importsCode);
-    }
-  } else {
-    const importsCode = generateJSDocImports(imports);
     if (importsCode) {
       sections.push(importsCode);
     }
@@ -752,7 +650,7 @@ export function generateMergedSchemaCode(opts: MergedSchemaOptions): string {
   // Generate default export
   sections.push(`\nexport default ${schemaName};`);
 
-  // Generate interface/typedef
+  // Generate interface (only for TypeScript)
   if (isTypeScript) {
     // Build extends clause from traits
     let extendsClause: string | undefined;
@@ -764,12 +662,6 @@ export function generateMergedSchemaCode(opts: MergedSchemaOptions): string {
     const interfaceCode = generateInterfaceOnly(interfaceName, properties, extendsClause);
     sections.push('');
     sections.push(interfaceCode);
-  } else {
-    // For JavaScript, use @typedef with intersection types for traits
-    const traitInterfaces = traits.length > 0 ? traits.map(traitNameToInterfaceName) : undefined;
-    const typedefCode = generateJSDocTypedef(interfaceName, properties, traitInterfaces);
-    sections.push('');
-    sections.push(typedefCode);
   }
 
   return sections.join('\n');
@@ -822,14 +714,9 @@ export function generateMergedTraitSchemaCode(opts: MergedTraitSchemaOptions): s
 
   const sections: string[] = [];
 
-  // Generate imports section
+  // Generate imports section (only for TypeScript)
   if (isTypeScript) {
     const importsCode = generateTypeScriptImports(imports);
-    if (importsCode) {
-      sections.push(importsCode);
-    }
-  } else {
-    const importsCode = generateJSDocImports(imports);
     if (importsCode) {
       sections.push(importsCode);
     }
@@ -842,7 +729,7 @@ export function generateMergedTraitSchemaCode(opts: MergedTraitSchemaOptions): s
   // Generate default export
   sections.push(`\nexport default ${schemaName};`);
 
-  // Generate interface/typedef
+  // Generate interface (only for TypeScript)
   if (isTypeScript) {
     // Build extends clause from traits
     let extendsClause: string | undefined;
@@ -854,12 +741,6 @@ export function generateMergedTraitSchemaCode(opts: MergedTraitSchemaOptions): s
     const interfaceCode = generateInterfaceOnly(traitInterfaceName, properties, extendsClause);
     sections.push('');
     sections.push(interfaceCode);
-  } else {
-    // For JavaScript, use @typedef with intersection types for traits
-    const traitInterfaces = traits.length > 0 ? traits.map(traitNameToInterfaceName) : undefined;
-    const typedefCode = generateJSDocTypedef(traitInterfaceName, properties, traitInterfaces);
-    sections.push('');
-    sections.push(typedefCode);
   }
 
   return sections.join('\n');
