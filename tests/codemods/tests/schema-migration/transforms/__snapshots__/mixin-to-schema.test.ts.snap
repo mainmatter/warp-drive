@@ -1,5 +1,38 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`mixin-to-schema transform (artifacts) > TypeScript type artifacts > generates only trait artifact when mixin has only data fields > data-only trait type interface 1`] = `
+"/**
+ * @import { User } from "test-app/data/resources/user.schema"
+ */
+/** @type {const} */
+const SimpleTrait = {
+  'name': 'simple',
+  'mode': 'legacy',
+  'fields': [
+    {
+      'name': 'title',
+      'kind': 'attribute',
+      'type': 'string'
+    },
+    {
+      'name': 'author',
+      'kind': 'belongsTo',
+      'type': 'user',
+      'options': {
+        'async': true
+      }
+    }
+  ]
+};
+
+export default SimpleTrait;
+
+/** @typedef {{
+  title: string | null;
+  author: Promise<User>;
+}} SimpleTrait */"
+`;
+
 exports[`mixin-to-schema transform (artifacts) > TypeScript type artifacts > generates only trait-type artifact when mixin has only data fields > data-only trait type interface 1`] = `
 "import type { User } from 'test-app/data/resources/user.schema.types';
 
@@ -8,6 +41,86 @@ export interface SimpleTrait {
 	author: Promise<User>;
 }
 "
+`;
+
+exports[`mixin-to-schema transform (artifacts) > TypeScript type artifacts > generates trait and extension artifacts when mixin has computed properties and methods > mixin extension code 1`] = `
+"import Mixin from '@ember/object/mixin';
+import { attr } from '@ember-data/model';
+import { computed } from '@ember/object';
+
+export const nameableExtension = {
+  displayName: computed('name', function() {
+		return \`Name: \${this.name}\`;
+	}),
+  getName() {
+		return this.name || 'Unknown';
+	}
+};"
+`;
+
+exports[`mixin-to-schema transform (artifacts) > TypeScript type artifacts > generates trait and extension artifacts when mixin has computed properties and methods > mixin trait type interface 1`] = `
+"/** @type {const} */
+const NameableTrait = {
+  'name': 'nameable',
+  'mode': 'legacy',
+  'fields': [
+    {
+      'name': 'name',
+      'kind': 'attribute',
+      'type': 'string'
+    }
+  ]
+};
+
+export default NameableTrait;
+
+/** @typedef {{
+  name: string | null;
+}} NameableTrait */"
+`;
+
+exports[`mixin-to-schema transform (artifacts) > TypeScript type artifacts > generates trait artifact with merged types for basic mixins > basic trait type interface 1`] = `
+"/**
+ * @import { HasMany } from "@ember-data/model"
+ * @import { File } from "test-app/data/resources/file.schema"
+ */
+/** @type {const} */
+const FileableTrait = {
+  'name': 'fileable',
+  'mode': 'legacy',
+  'fields': [
+    {
+      'name': 'files',
+      'kind': 'hasMany',
+      'type': 'file',
+      'options': {
+        'as': 'fileable',
+        'async': false
+      }
+    },
+    {
+      'name': 'name',
+      'kind': 'attribute',
+      'type': 'string'
+    },
+    {
+      'name': 'isActive',
+      'kind': 'attribute',
+      'type': 'boolean',
+      'options': {
+        'defaultValue': false
+      }
+    }
+  ]
+};
+
+export default FileableTrait;
+
+/** @typedef {{
+  files: HasMany<File>;
+  name: string | null;
+  isActive: boolean | null;
+}} FileableTrait */"
 `;
 
 exports[`mixin-to-schema transform (artifacts) > TypeScript type artifacts > generates trait-type and extension artifacts when mixin has computed properties and methods > mixin extension code 1`] = `

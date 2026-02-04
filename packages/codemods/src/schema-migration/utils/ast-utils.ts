@@ -79,8 +79,20 @@ export {
   createTypeArtifact,
   createExtensionArtifact,
   createExtensionArtifactWithTypes,
+  getExtensionArtifactType,
+  traitNameToInterfaceName,
+  traitNameToImportPath,
+  generateMergedSchemaCode,
+  generateMergedTraitSchemaCode,
 } from './schema-generation.js';
-export type { TransformArtifact, PropertyInfo, SchemaField } from './schema-generation.js';
+export type {
+  TransformArtifact,
+  PropertyInfo,
+  SchemaField,
+  ExtensionContext,
+  MergedSchemaOptions,
+  MergedTraitSchemaOptions,
+} from './schema-generation.js';
 
 // Re-export from import-utils
 export {

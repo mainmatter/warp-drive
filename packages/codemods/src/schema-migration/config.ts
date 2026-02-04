@@ -38,13 +38,17 @@ export interface TransformOptions {
   resourcesImport?: string;
   /** Directory to write generated resource schemas to */
   resourcesDir?: string;
-  /** Directory to write generated extension files to */
+  /**
+   * @deprecated Extensions are now co-located with their schemas. Use resourcesDir and traitsDir instead.
+   */
   extensionsDir?: string;
   /** Directory to write generated trait files to */
   traitsDir?: string;
   /** Base import path for trait type imports (optional, defaults to relative imports) */
   traitsImport?: string;
-  /** Base import path for extension type imports (optional, defaults to relative imports) */
+  /**
+   * @deprecated Extensions are now co-located with their schemas
+   */
   extensionsImport?: string;
   /** Custom type mappings for EmberData transform types (e.g., 'uuid' -> 'string') */
   typeMapping?: Record<string, string>;
@@ -67,10 +71,10 @@ export interface TransformOptions {
   generateExternalResources?: boolean;
 
   baseModel?: {
-    import: string,
-    extension?: string,
-    trait: string,
-  }
+    import: string;
+    extension?: string;
+    trait: string;
+  };
 }
 
 export interface MigrateOptions extends Partial<TransformOptions> {

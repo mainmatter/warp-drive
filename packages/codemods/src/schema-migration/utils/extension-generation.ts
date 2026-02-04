@@ -17,6 +17,25 @@ import {
 } from './string.js';
 
 /**
+ * Extension artifact context - determines where the extension file is placed
+ */
+export type ExtensionContext = 'resource' | 'trait';
+
+/**
+ * Get the artifact type for an extension based on its context
+ */
+export function getExtensionArtifactType(context: ExtensionContext): string {
+  return context === 'trait' ? 'trait-extension' : 'resource-extension';
+}
+
+/**
+ * Get the extension file suffix (.ext.js or .ext.ts)
+ */
+export function getExtensionFileSuffix(originalExtension: string): string {
+  return `.ext${originalExtension}`;
+}
+
+/**
  * Generate extension code in either object or class format
  * Shared between model-to-schema and mixin-to-schema transforms
  */
@@ -287,7 +306,8 @@ export function createExtensionFromOriginalFile(
   interfaceToExtend?: string,
   interfaceImportPath?: string,
   sourceType: 'mixin' | 'model' = 'model',
-  processImports?: (source: string, filePath: string, baseDir: string, options?: TransformOptions) => string
+  processImports?: (source: string, filePath: string, baseDir: string, options?: TransformOptions) => string,
+  extensionContext: ExtensionContext = 'resource'
 ): TransformArtifact | null {
   if (extensionProperties.length === 0) {
     return null;
@@ -301,10 +321,17 @@ export function createExtensionFromOriginalFile(
     debugLog(options, `Creating extension from ${filePath} with ${extensionProperties.length} properties`);
 
     // Calculate expected target file path for the extension
+    // Extensions are now co-located with schemas in resourcesDir or traitsDir
     const path = require('path');
-    const extensionsDir = options?.extensionsDir || './app/data/extensions';
     const originalExt = filePath.endsWith('.ts') ? '.ts' : '.js';
-    const targetFilePath = path.join(path.resolve(extensionsDir), `${baseName}${originalExt}`);
+    const extFileName = `${baseName}${getExtensionFileSuffix(originalExt)}`;
+
+    // Determine target directory based on extension context
+    const targetDir =
+      extensionContext === 'trait'
+        ? options?.traitsDir || './app/data/traits'
+        : options?.resourcesDir || './app/data/resources';
+    const targetFilePath = path.join(path.resolve(targetDir), extFileName);
 
     // Update relative imports for the new extension location
     const updatedSource = updateRelativeImportsForExtensions(source, root, options, filePath, targetFilePath);
@@ -317,13 +344,19 @@ export function createExtensionFromOriginalFile(
 
     // Generate the extension class/object
     const isTypeScript = filePath.endsWith('.ts');
+
+    // Update interface import path to reference .schema file instead of .schema.types
+    const updatedInterfaceImportPath = interfaceImportPath
+      ? interfaceImportPath.replace('.schema.types', '.schema')
+      : interfaceImportPath;
+
     const extensionCode = generateExtensionCode(
       extensionName,
       extensionProperties,
       format,
       interfaceToExtend,
       isTypeScript,
-      interfaceImportPath
+      updatedInterfaceImportPath
     );
 
     // Use a simpler approach: remove the main class and append extension code
@@ -382,10 +415,10 @@ export function createExtensionFromOriginalFile(
     debugLog(options, `Extension code to add: ${extensionCode.substring(0, 200)}...`);
 
     return {
-      type: 'extension',
+      type: getExtensionArtifactType(extensionContext),
       name: extensionName,
       code: modifiedSource,
-      suggestedFileName: `${baseName}${originalExt}`,
+      suggestedFileName: extFileName,
     };
   } catch (error) {
     errorLog(options, `Error creating extension from original file: ${String(error)}`);

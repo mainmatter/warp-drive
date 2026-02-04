@@ -11,6 +11,7 @@ import {
   debugLog,
   DEFAULT_EMBER_DATA_SOURCE,
   DEFAULT_MIXIN_SOURCE,
+  detectQuoteStyle,
   extractBaseName,
   extractCamelCaseName,
   extractJSDocTypes,
@@ -20,6 +21,7 @@ import {
   findDefaultExport,
   findEmberImportLocalName,
   generateExportStatement,
+  generateMergedTraitSchemaCode,
   generateTraitImport,
   getEmberDataImports,
   getExportedIdentifier,
@@ -312,21 +314,11 @@ export function toArtifacts(filePath: string, source: string, options: Transform
 
     const artifacts: TransformArtifact[] = [];
     const fileExtension = getFileExtension(filePath);
+    const isTypeScript = fileExtension === '.ts';
 
     // Always generate trait type interface, even for empty mixins (needed for polymorphic relationships)
     const traitInterfaceName = `${mixinName.charAt(0).toUpperCase() + mixinName.slice(1)}Trait`;
 
-    // Always generate trait schema file, even for empty mixins (needed for polymorphic relationships)
-    const name = `${mixinName}Trait`;
-    const code = generateTraitCode(name, traitFields, extendedTraits);
-    artifacts.push({
-      type: 'trait',
-      name,
-      code,
-      suggestedFileName: `${baseName}.schema${fileExtension}`,
-    });
-
-    // Always generate trait type interface, even for empty mixins (needed for polymorphic relationships)
     // Convert trait fields to TypeScript interface properties
     const traitFieldTypes = traitFields.map((field) => {
       return {
@@ -335,10 +327,6 @@ export function toArtifacts(filePath: string, source: string, options: Transform
         readonly: false,
       };
     });
-
-    // Convert extended traits to extends clause format
-    const extendsClause =
-      extendedTraits.length > 0 ? extendedTraits.map((trait) => `${toPascalCase(trait)}Trait`).join(', ') : undefined;
 
     // Collect imports needed for the trait type interface
     const imports = new Set<string>();
@@ -363,9 +351,9 @@ export function toArtifacts(filePath: string, source: string, options: Transform
       }
     }
 
-    // Add model type imports
+    // Add model type imports - now uses .schema instead of .schema.types
     if (modelTypes.size > 0) {
-      // Import each model type from its resource types file
+      // Import each model type from its resource schema file
       for (const modelType of modelTypes) {
         const pascalCaseType = toPascalCase(modelType);
 
@@ -375,34 +363,70 @@ export function toArtifacts(filePath: string, source: string, options: Transform
           ensureResourceTypeFileExists(modelType, options, artifacts);
         }
 
-        imports.add(`type { ${pascalCaseType} } from '${options.resourcesImport}/${modelType}.schema.types'`);
+        imports.add(`type { ${pascalCaseType} } from '${options.resourcesImport}/${modelType}.schema'`);
       }
     }
 
-    // Add imports for extended traits
+    // Add imports for extended traits - now uses .schema instead of .schema.types
     if (extendedTraits.length > 0) {
       for (const trait of extendedTraits) {
         imports.add(generateTraitImport(trait, options));
       }
     }
 
-    const traitTypeArtifact = createTypeArtifact(
+    // Build the trait schema object
+    const traitSchemaName = traitInterfaceName;
+    const traitInternalName = pascalToKebab(mixinName);
+    const traitSchemaObject: Record<string, unknown> = {
+      name: traitInternalName,
+      mode: 'legacy',
+      fields: traitFields.map((field) => {
+        const result: Record<string, unknown> = { name: field.name, kind: field.kind };
+        if (field.type) {
+          result.type = field.type;
+        }
+        if (field.options) {
+          result.options = field.options;
+        }
+        return result;
+      }),
+    };
+
+    // Add traits property if this trait extends other traits
+    if (extendedTraits.length > 0) {
+      traitSchemaObject.traits = extendedTraits;
+    }
+
+    // Detect quote style from source
+    const useSingleQuotes = detectQuoteStyle(source) === 'single';
+
+    // Generate merged trait schema code (schema + types in one file)
+    const mergedTraitSchemaCode = generateMergedTraitSchemaCode({
       baseName,
       traitInterfaceName,
-      traitFieldTypes,
-      'trait',
-      extendsClause,
-      imports.size > 0 ? Array.from(imports) : undefined,
-      '.ts' // Type files should always be .ts regardless of source file extension
-    );
-    artifacts.push(traitTypeArtifact);
+      schemaName: traitSchemaName,
+      schemaObject: traitSchemaObject,
+      properties: traitFieldTypes,
+      traits: extendedTraits,
+      imports,
+      isTypeScript,
+      useSingleQuotes,
+    });
+
+    artifacts.push({
+      type: 'trait',
+      name: traitSchemaName,
+      code: mergedTraitSchemaCode,
+      suggestedFileName: `${baseName}.schema${fileExtension}`,
+    });
 
     // Create extension artifact for mixins that have extension properties
     // For mixins, extensions should extend the trait interface
+    // Import path now uses .schema instead of .schema.types
     if (extensionProperties.length > 0) {
       const traitImportPath = options?.traitsImport
-        ? `${options.traitsImport}/${baseName}.schema.types`
-        : `../traits/${baseName}.schema.types`;
+        ? `${options.traitsImport}/${baseName}.schema`
+        : `../traits/${baseName}.schema`;
       const extensionArtifact = createExtensionFromOriginalFile(
         filePath,
         source,
@@ -413,7 +437,9 @@ export function toArtifacts(filePath: string, source: string, options: Transform
         options,
         traitInterfaceName,
         traitImportPath,
-        'mixin' // Source is a mixin file
+        'mixin', // Source is a mixin file
+        undefined, // processImports - not used for mixins
+        'trait' // Extension context - trait extensions go to traitsDir
       );
 
       if (extensionArtifact) {

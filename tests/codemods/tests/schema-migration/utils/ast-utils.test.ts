@@ -178,16 +178,16 @@ describe('AST utilities', () => {
       const artifacts = createExtensionArtifactWithTypes(baseName, extensionName, properties, 'class');
 
       expect(artifacts.extensionArtifact).toBeDefined();
-      expect(artifacts.typeArtifact).toBeDefined();
+      // Type artifacts are no longer generated separately - types are merged into schema files
+      expect(artifacts.typeArtifact).toBeNull();
 
       const extension = artifacts.extensionArtifact;
-      const extensionType = artifacts.typeArtifact;
 
       expect(extension.name).toBe(extensionName);
-      expect(extension.suggestedFileName).toBe('user.ts');
-      expect(extensionType.type).toBe('extension-type');
-      expect(extensionType.name).toBe('UserExtensionSignature');
-      expect(extensionType.suggestedFileName).toBe('user.ts');
+      // Extension files now use .ext suffix
+      expect(extension.suggestedFileName).toBe('user.ext.ts');
+      // Extension artifact type is now 'resource-extension'
+      expect(extension.type).toBe('resource-extension');
     });
 
     it('creates only extension artifact when no properties provided', () => {

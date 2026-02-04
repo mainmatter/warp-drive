@@ -408,6 +408,18 @@ export function createTypeArtifact(
 }
 
 /**
+ * Extension artifact context - determines where the extension file is placed
+ */
+export type ExtensionContext = 'resource' | 'trait';
+
+/**
+ * Get the artifact type for an extension based on its context
+ */
+export function getExtensionArtifactType(context: ExtensionContext): string {
+  return context === 'trait' ? 'trait-extension' : 'resource-extension';
+}
+
+/**
  * Create extension artifact if extension properties exist
  * Shared utility for consistent extension artifact generation
  */
@@ -421,7 +433,8 @@ export function createExtensionArtifact(
     name: string,
     props: Array<{ name: string; originalKey: string; value: string; isObjectMethod?: boolean }>,
     format: 'object' | 'class'
-  ) => string
+  ) => string,
+  context: ExtensionContext = 'resource'
 ): TransformArtifact | null {
   if (extensionProperties.length === 0) {
     return null;
@@ -443,16 +456,21 @@ export function createExtensionArtifact(
 
   const extensionCode = generator(extensionName, extensionProperties, extensionFormat);
 
+  // Use .ext suffix for extension files
+  const ext = fileExtension || '.ts';
+  const extFileName = `${baseName}.ext${ext}`;
+
   return {
-    type: 'extension',
+    type: getExtensionArtifactType(context),
     name: extensionName,
     code: extensionCode,
-    suggestedFileName: `${baseName}${fileExtension || '.ts'}`,
+    suggestedFileName: extFileName,
   };
 }
 
 /**
  * Create extension and type artifacts for properties with TypeScript types
+ * Note: Type artifacts are no longer generated separately - types are merged into schema files
  */
 export function createExtensionArtifactWithTypes(
   baseName: string,
@@ -464,7 +482,8 @@ export function createExtensionArtifactWithTypes(
     name: string,
     props: Array<{ name: string; originalKey: string; value: string; isObjectMethod?: boolean }>,
     format: 'object' | 'class'
-  ) => string
+  ) => string,
+  context: ExtensionContext = 'resource'
 ): { extensionArtifact: TransformArtifact | null; typeArtifact: TransformArtifact | null } {
   if (extensionProperties.length === 0) {
     return { extensionArtifact: null, typeArtifact: null };
@@ -486,30 +505,362 @@ export function createExtensionArtifactWithTypes(
 
   // Create the extension artifact (JavaScript code)
   const extensionCode = generator(extensionName, extensionProperties, extensionFormat);
+
+  // Use .ext suffix for extension files
+  const ext = fileExtension || '.ts';
+  const extFileName = `${baseName}.ext${ext}`;
+
   const extensionArtifact: TransformArtifact = {
-    type: 'extension',
+    type: getExtensionArtifactType(context),
     name: extensionName,
     code: extensionCode,
-    suggestedFileName: `${baseName}${fileExtension || '.ts'}`,
+    suggestedFileName: extFileName,
   };
 
-  // Create the type artifact (TypeScript interface)
-  const hasTypes = extensionProperties.some((prop) => prop.typeInfo?.type);
-  if (hasTypes) {
-    // Transform PropertyInfo to the format expected by createTypeArtifact
-    const typeProperties = extensionProperties
-      .filter((prop): prop is PropertyInfo & { typeInfo: ExtractedType } => Boolean(prop.typeInfo?.type))
-      .map((prop) => ({
-        name: prop.name,
-        type: prop.typeInfo.type,
-        readonly: prop.typeInfo.readonly,
-        optional: prop.typeInfo.optional,
-        // comment field is optional and not provided by ExtractedType
-      }));
+  // Type artifacts are no longer generated separately - types are merged into schema files
+  return { extensionArtifact, typeArtifact: null };
+}
 
-    const typeArtifact = createTypeArtifact(baseName, `${extensionName}Signature`, typeProperties, 'extension');
-    return { extensionArtifact, typeArtifact };
+/**
+ * Options for generating merged schema with types
+ */
+export interface MergedSchemaOptions {
+  /** The base name of the resource (kebab-case, e.g., 'user') */
+  baseName: string;
+  /** The interface name (PascalCase, e.g., 'User') */
+  interfaceName: string;
+  /** The schema variable name (e.g., 'UserSchema') */
+  schemaName: string;
+  /** The schema object to export */
+  schemaObject: Record<string, unknown>;
+  /** Properties for the interface */
+  properties: Array<{
+    name: string;
+    type: string;
+    readonly?: boolean;
+    optional?: boolean;
+    comment?: string;
+  }>;
+  /** Traits that this interface extends */
+  traits?: string[];
+  /** Import statements needed for types */
+  imports?: Set<string>;
+  /** Whether this is a TypeScript file */
+  isTypeScript: boolean;
+  /** Whether to use single quotes */
+  useSingleQuotes?: boolean;
+  /** Transform options */
+  options?: TransformOptions;
+}
+
+/**
+ * Convert trait name (kebab-case) to interface name (PascalCase + 'Trait' suffix)
+ */
+export function traitNameToInterfaceName(traitName: string): string {
+  return `${toPascalCase(traitName)}Trait`;
+}
+
+/**
+ * Generate import path for a trait
+ */
+export function traitNameToImportPath(traitName: string, appPrefix: string): string {
+  return `${appPrefix}/data/traits/${traitName}.schema`;
+}
+
+/**
+ * Generate JSDoc @import statements for JavaScript files
+ */
+function generateJSDocImports(imports: Set<string>): string {
+  if (imports.size === 0) return '';
+
+  const lines: string[] = ['/**'];
+
+  for (const importStatement of imports) {
+    // Parse the import statement to extract what we need
+    // Expected format: "type { TypeName } from 'path'" or "{ TypeName } from 'path'"
+    const match = importStatement.match(/(?:type\s+)?{\s*([^}]+)\s*}\s+from\s+['"]([^'"]+)['"]/);
+    if (match) {
+      const types = match[1].split(',').map((t) => t.trim());
+      const path = match[2];
+      for (const typeName of types) {
+        // Handle "Foo as Bar" renaming
+        const actualType = typeName.split(' as ')[0].trim();
+        lines.push(` * @import { ${actualType} } from "${path}"`);
+      }
+    }
   }
 
-  return { extensionArtifact, typeArtifact: null };
+  lines.push(' */');
+  return lines.join('\n');
+}
+
+/**
+ * Generate TypeScript import statements
+ */
+function generateTypeScriptImports(imports: Set<string>): string {
+  if (imports.size === 0) return '';
+
+  const lines: string[] = [];
+  for (const importStatement of imports) {
+    // Ensure proper formatting
+    if (importStatement.startsWith('import ')) {
+      lines.push(`${importStatement};`);
+    } else {
+      lines.push(`import ${importStatement};`);
+    }
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Generate the schema const declaration
+ */
+function generateSchemaDeclaration(
+  schemaName: string,
+  schemaObject: Record<string, unknown>,
+  isTypeScript: boolean,
+  useSingleQuotes: boolean
+): string {
+  let jsonString = JSON.stringify(schemaObject, null, 2);
+
+  // Convert all double quotes to single quotes if using single quotes
+  if (useSingleQuotes) {
+    jsonString = jsonString.replace(/"([^"\\]*(\\.[^"\\]*)*)"/g, "'$1'");
+  }
+
+  if (isTypeScript) {
+    return `const ${schemaName} = ${jsonString} as const;`;
+  } else {
+    return `/** @type {const} */\nconst ${schemaName} = ${jsonString};`;
+  }
+}
+
+/**
+ * Generate TypeScript interface code (without imports - they're handled separately)
+ */
+function generateInterfaceOnly(
+  interfaceName: string,
+  properties: Array<{
+    name: string;
+    type: string;
+    readonly?: boolean;
+    optional?: boolean;
+    comment?: string;
+  }>,
+  extendsClause?: string
+): string {
+  const lines: string[] = [];
+
+  // Add interface declaration
+  let interfaceDeclaration = `export interface ${interfaceName}`;
+  if (extendsClause) {
+    interfaceDeclaration += ` extends ${extendsClause}`;
+  }
+  interfaceDeclaration += ' {';
+  lines.push(interfaceDeclaration);
+
+  // Add properties
+  properties.forEach((prop) => {
+    if (prop.comment) {
+      const formattedComment = prop.comment.startsWith('/**') ? prop.comment : `/** ${prop.comment} */`;
+      lines.push(`  ${formattedComment}`);
+    }
+
+    const readonly = prop.readonly ? 'readonly ' : '';
+    const optional = prop.optional ? '?' : '';
+
+    lines.push(`  ${readonly}${prop.name}${optional}: ${prop.type};`);
+  });
+
+  lines.push('}');
+
+  return lines.join('\n');
+}
+
+/**
+ * Generate JSDoc @typedef for JavaScript files with trait composition
+ */
+function generateJSDocTypedef(
+  interfaceName: string,
+  properties: Array<{
+    name: string;
+    type: string;
+    readonly?: boolean;
+    optional?: boolean;
+    comment?: string;
+  }>,
+  traitInterfaces?: string[]
+): string {
+  const lines: string[] = [];
+
+  // Build the property object type
+  const propLines: string[] = [];
+  for (const prop of properties) {
+    const readonly = prop.readonly ? 'readonly ' : '';
+    const optional = prop.optional ? '?' : '';
+    propLines.push(`  ${readonly}${prop.name}${optional}: ${prop.type};`);
+  }
+
+  const propsType = `{\n${propLines.join('\n')}\n}`;
+
+  // If we have traits, create an intersection type
+  if (traitInterfaces && traitInterfaces.length > 0) {
+    const traitTypes = traitInterfaces.join(' & ');
+    lines.push(`/** @typedef {${traitTypes} & ${propsType}} ${interfaceName} */`);
+  } else {
+    lines.push(`/** @typedef {${propsType}} ${interfaceName} */`);
+  }
+
+  return lines.join('\n');
+}
+
+/**
+ * Generate a merged schema file containing both the schema object and type interface
+ * This replaces the separate .schema.js and .schema.types.ts files
+ */
+export function generateMergedSchemaCode(opts: MergedSchemaOptions): string {
+  const {
+    schemaName,
+    interfaceName,
+    schemaObject,
+    properties,
+    traits = [],
+    imports = new Set(),
+    isTypeScript,
+    useSingleQuotes = false,
+  } = opts;
+
+  const sections: string[] = [];
+
+  // Generate imports section
+  if (isTypeScript) {
+    const importsCode = generateTypeScriptImports(imports);
+    if (importsCode) {
+      sections.push(importsCode);
+    }
+  } else {
+    const importsCode = generateJSDocImports(imports);
+    if (importsCode) {
+      sections.push(importsCode);
+    }
+  }
+
+  // Generate schema declaration
+  const schemaDecl = generateSchemaDeclaration(schemaName, schemaObject, isTypeScript, useSingleQuotes);
+  sections.push(schemaDecl);
+
+  // Generate default export
+  sections.push(`\nexport default ${schemaName};`);
+
+  // Generate interface/typedef
+  if (isTypeScript) {
+    // Build extends clause from traits
+    let extendsClause: string | undefined;
+    if (traits.length > 0) {
+      const traitInterfaces = traits.map(traitNameToInterfaceName);
+      extendsClause = traitInterfaces.join(', ');
+    }
+
+    const interfaceCode = generateInterfaceOnly(interfaceName, properties, extendsClause);
+    sections.push('');
+    sections.push(interfaceCode);
+  } else {
+    // For JavaScript, use @typedef with intersection types for traits
+    const traitInterfaces = traits.length > 0 ? traits.map(traitNameToInterfaceName) : undefined;
+    const typedefCode = generateJSDocTypedef(interfaceName, properties, traitInterfaces);
+    sections.push('');
+    sections.push(typedefCode);
+  }
+
+  return sections.join('\n');
+}
+
+/**
+ * Options for generating merged trait schema with types
+ */
+export interface MergedTraitSchemaOptions {
+  /** The base name of the trait (kebab-case, e.g., 'timestamped') */
+  baseName: string;
+  /** The trait interface name (e.g., 'TimestampedTrait') */
+  traitInterfaceName: string;
+  /** The schema variable name (e.g., 'TimestampedTrait') */
+  schemaName: string;
+  /** The trait schema object to export */
+  schemaObject: Record<string, unknown>;
+  /** Properties for the interface */
+  properties: Array<{
+    name: string;
+    type: string;
+    readonly?: boolean;
+    optional?: boolean;
+    comment?: string;
+  }>;
+  /** Other traits that this trait extends */
+  traits?: string[];
+  /** Import statements needed for types */
+  imports?: Set<string>;
+  /** Whether this is a TypeScript file */
+  isTypeScript: boolean;
+  /** Whether to use single quotes */
+  useSingleQuotes?: boolean;
+}
+
+/**
+ * Generate a merged trait schema file containing both the schema object and type interface
+ */
+export function generateMergedTraitSchemaCode(opts: MergedTraitSchemaOptions): string {
+  const {
+    schemaName,
+    traitInterfaceName,
+    schemaObject,
+    properties,
+    traits = [],
+    imports = new Set(),
+    isTypeScript,
+    useSingleQuotes = false,
+  } = opts;
+
+  const sections: string[] = [];
+
+  // Generate imports section
+  if (isTypeScript) {
+    const importsCode = generateTypeScriptImports(imports);
+    if (importsCode) {
+      sections.push(importsCode);
+    }
+  } else {
+    const importsCode = generateJSDocImports(imports);
+    if (importsCode) {
+      sections.push(importsCode);
+    }
+  }
+
+  // Generate schema declaration
+  const schemaDecl = generateSchemaDeclaration(schemaName, schemaObject, isTypeScript, useSingleQuotes);
+  sections.push(schemaDecl);
+
+  // Generate default export
+  sections.push(`\nexport default ${schemaName};`);
+
+  // Generate interface/typedef
+  if (isTypeScript) {
+    // Build extends clause from traits
+    let extendsClause: string | undefined;
+    if (traits.length > 0) {
+      const traitInterfaces = traits.map(traitNameToInterfaceName);
+      extendsClause = traitInterfaces.join(', ');
+    }
+
+    const interfaceCode = generateInterfaceOnly(traitInterfaceName, properties, extendsClause);
+    sections.push('');
+    sections.push(interfaceCode);
+  } else {
+    // For JavaScript, use @typedef with intersection types for traits
+    const traitInterfaces = traits.length > 0 ? traits.map(traitNameToInterfaceName) : undefined;
+    const typedefCode = generateJSDocTypedef(traitInterfaceName, properties, traitInterfaces);
+    sections.push('');
+    sections.push(typedefCode);
+  }
+
+  return sections.join('\n');
 }
