@@ -631,7 +631,7 @@ function generateSchemaDeclaration(
   if (isTypeScript) {
     return `const ${schemaName} = ${jsonString} as const;`;
   } else {
-    return `/** @type {const} */\nconst ${schemaName} = ${jsonString};`;
+    return `const ${schemaName} = ${jsonString};`;
   }
 }
 
