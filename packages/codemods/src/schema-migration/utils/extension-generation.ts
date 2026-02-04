@@ -345,18 +345,13 @@ export function createExtensionFromOriginalFile(
     // Generate the extension class/object
     const isTypeScript = filePath.endsWith('.ts');
 
-    // Update interface import path to reference .schema file instead of .schema.types
-    const updatedInterfaceImportPath = interfaceImportPath
-      ? interfaceImportPath.replace('.schema.types', '.schema')
-      : interfaceImportPath;
-
     const extensionCode = generateExtensionCode(
       extensionName,
       extensionProperties,
       format,
       interfaceToExtend,
       isTypeScript,
-      updatedInterfaceImportPath
+      interfaceImportPath
     );
 
     // Use a simpler approach: remove the main class and append extension code

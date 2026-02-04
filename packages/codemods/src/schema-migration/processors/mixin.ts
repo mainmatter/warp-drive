@@ -154,7 +154,7 @@ function ensureResourceTypeFileExists(
 
   // Use resourcesDir if available, otherwise fall back to current directory
   const baseDir = options.resourcesDir || '.';
-  const resourceTypeFilePath = join(baseDir, `${modelType}.schema.types.ts`);
+  const resourceTypeFilePath = join(baseDir, `${modelType}.schema.ts`);
 
   // Check if the file exists
   if (!existsSync(resourceTypeFilePath)) {
@@ -168,7 +168,7 @@ function ensureResourceTypeFileExists(
       type: 'resource-type-stub',
       name: pascalCaseType,
       code: stubCode,
-      suggestedFileName: `${modelType}.schema.types.ts`,
+      suggestedFileName: `${modelType}.schema.ts`,
     });
 
     return true; // Stub was created
@@ -351,7 +351,6 @@ export function toArtifacts(filePath: string, source: string, options: Transform
       }
     }
 
-    // Add model type imports - now uses .schema instead of .schema.types
     if (modelTypes.size > 0) {
       // Import each model type from its resource schema file
       for (const modelType of modelTypes) {
@@ -367,7 +366,6 @@ export function toArtifacts(filePath: string, source: string, options: Transform
       }
     }
 
-    // Add imports for extended traits - now uses .schema instead of .schema.types
     if (extendedTraits.length > 0) {
       for (const trait of extendedTraits) {
         imports.add(generateTraitImport(trait, options));
@@ -422,7 +420,6 @@ export function toArtifacts(filePath: string, source: string, options: Transform
 
     // Create extension artifact for mixins that have extension properties
     // For mixins, extensions should extend the trait interface
-    // Import path now uses .schema instead of .schema.types
     if (extensionProperties.length > 0) {
       const traitImportPath = options?.traitsImport
         ? `${options.traitsImport}/${baseName}.schema`

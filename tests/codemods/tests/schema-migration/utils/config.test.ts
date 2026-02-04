@@ -40,7 +40,6 @@ describe('config utils', () => {
         verbose: false,
         mirror: true,
         traitsDir: './traits',
-        extensionsDir: './extensions',
         typeMapping: {
           uuid: 'string',
           currency: 'number',
@@ -58,7 +57,6 @@ describe('config utils', () => {
         verbose: false,
         mirror: true,
         traitsDir: join(TEST_CONFIG_DIR, 'traits'),
-        extensionsDir: join(TEST_CONFIG_DIR, 'extensions'),
         typeMapping: {
           uuid: 'string',
           currency: 'number',
@@ -160,7 +158,6 @@ describe('config utils', () => {
         verbose: true,
         mirror: false,
         traitsDir: './config-traits',
-        extensionsDir: './config-extensions',
         typeMapping: {
           uuid: 'string',
           currency: 'number',
@@ -183,7 +180,6 @@ describe('config utils', () => {
         verbose: true, // from config
         mirror: false, // from config
         traitsDir: './cli-traits', // CLI override
-        extensionsDir: './config-extensions', // from config
         typeMapping: {
           uuid: 'string',
           json: 'unknown',
@@ -201,7 +197,6 @@ describe('config utils', () => {
       const cliOptions: ConfigOptions = {
         dryRun: undefined,
         verbose: undefined,
-        extensionsDir: './extensions',
       };
 
       const result = mergeOptions(cliOptions, configOptions);
@@ -210,7 +205,6 @@ describe('config utils', () => {
         dryRun: false, // from config (CLI undefined)
         verbose: true, // from config (CLI undefined)
         traitsDir: './traits', // from config
-        extensionsDir: './extensions', // from CLI
       });
     });
 
@@ -231,14 +225,12 @@ describe('config utils', () => {
     it('should work with empty CLI options', () => {
       const configOptions: ConfigOptions = {
         verbose: true,
-        extensionsDir: './extensions',
       };
 
       const result = mergeOptions({}, configOptions);
 
       expect(result).toEqual({
         verbose: true,
-        extensionsDir: './extensions',
       });
     });
   });
@@ -247,7 +239,6 @@ describe('config utils', () => {
     it('should resolve relative paths relative to base directory', () => {
       const config: ConfigOptions = {
         traitsDir: './traits',
-        extensionsDir: '../extensions',
         resourcesDir: 'schemas',
         mirror: true,
       };
@@ -257,7 +248,6 @@ describe('config utils', () => {
 
       expect(result).toEqual({
         traitsDir: '/projects/my-app/config/traits',
-        extensionsDir: '/projects/my-app/extensions',
         resourcesDir: '/projects/my-app/config/schemas',
         mirror: true,
       });
@@ -266,7 +256,6 @@ describe('config utils', () => {
     it('should leave absolute paths unchanged', () => {
       const config: ConfigOptions = {
         traitsDir: '/absolute/path/traits',
-        extensionsDir: '/another/absolute/path',
         resourcesDir: './relative/path',
       };
 
@@ -275,7 +264,6 @@ describe('config utils', () => {
 
       expect(result).toEqual({
         traitsDir: '/absolute/path/traits',
-        extensionsDir: '/another/absolute/path',
         resourcesDir: '/projects/my-app/config/relative/path',
       });
     });
@@ -283,7 +271,6 @@ describe('config utils', () => {
     it('should handle empty or undefined paths', () => {
       const config: ConfigOptions = {
         traitsDir: '',
-        extensionsDir: undefined,
         resourcesDir: './schemas',
         verbose: true,
       };
@@ -293,7 +280,6 @@ describe('config utils', () => {
 
       expect(result).toEqual({
         traitsDir: '',
-        extensionsDir: undefined,
         resourcesDir: '/projects/my-app/schemas',
         verbose: true,
       });
@@ -328,7 +314,6 @@ describe('config utils', () => {
       const originalCwd = process.cwd();
       const config: ConfigOptions = {
         traitsDir: './traits',
-        extensionsDir: '../extensions',
         resourcesDir: 'schemas',
       };
 
@@ -336,7 +321,6 @@ describe('config utils', () => {
 
       expect(result).toEqual({
         traitsDir: join(originalCwd, 'traits'),
-        extensionsDir: join(originalCwd, '..', 'extensions'),
         resourcesDir: join(originalCwd, 'schemas'),
       });
     });
@@ -344,7 +328,6 @@ describe('config utils', () => {
     it('should use custom cwd when provided', () => {
       const config: ConfigOptions = {
         traitsDir: './traits',
-        extensionsDir: 'extensions',
       };
 
       const customCwd = '/custom/working/dir';
@@ -352,21 +335,18 @@ describe('config utils', () => {
 
       expect(result).toEqual({
         traitsDir: '/custom/working/dir/traits',
-        extensionsDir: '/custom/working/dir/extensions',
       });
     });
 
     it('should leave absolute paths unchanged', () => {
       const config: ConfigOptions = {
         traitsDir: '/absolute/path/traits',
-        extensionsDir: '/another/absolute/path',
       };
 
       const result = normalizeCliPaths(config);
 
       expect(result).toEqual({
         traitsDir: '/absolute/path/traits',
-        extensionsDir: '/another/absolute/path',
       });
     });
 
@@ -382,7 +362,6 @@ describe('config utils', () => {
         modelImportSource: 'test-app/models',
         resourcesImport: 'test-app/data/resources',
         resourcesDir: './schemas',
-        extensionsDir: './extensions',
       };
 
       const errors = validateConfigForTransform(validConfig, 'model-to-schema');
@@ -399,7 +378,6 @@ describe('config utils', () => {
         'modelImportSource is required for all transforms',
         'resourcesImport is required for all transforms',
         'resourcesDir is required for model-to-schema transforms',
-        'extensionsDir is required for model-to-schema transforms',
       ]);
     });
 
@@ -408,7 +386,6 @@ describe('config utils', () => {
         modelImportSource: 'test-app/models',
         resourcesImport: 'test-app/data/resources',
         traitsDir: './traits',
-        extensionsDir: './extensions',
       };
 
       const errors = validateConfigForTransform(validConfig, 'mixin-to-schema');
@@ -425,7 +402,6 @@ describe('config utils', () => {
         'modelImportSource is required for all transforms',
         'resourcesImport is required for all transforms',
         'traitsDir is required for mixin-to-schema transforms',
-        'extensionsDir is required for mixin-to-schema transforms',
       ]);
     });
 
@@ -434,11 +410,10 @@ describe('config utils', () => {
         modelImportSource: 'test-app/models',
         resourcesImport: 'test-app/data/resources',
         traitsDir: './traits',
-        // missing extensionsDir
       };
 
       const errors = validateConfigForTransform(partialConfig, 'mixin-to-schema');
-      expect(errors).toEqual(['extensionsDir is required for mixin-to-schema transforms']);
+      expect(errors).toEqual([]);
     });
   });
 
@@ -453,7 +428,6 @@ describe('config utils', () => {
         modelImportSource: 'test-app/models',
         resourcesImport: 'test-app/data/resources',
         traitsDir: './traits',
-        extensionsDir: './extensions',
         typeMapping: {
           uuid: 'string',
         },
@@ -485,7 +459,6 @@ describe('config utils', () => {
         modelImportSource: 'test-app/models', // from config
         resourcesImport: 'test-app/data/resources', // from config
         traitsDir: './cli-traits', // overridden by CLI (not resolved yet)
-        extensionsDir: join(TEST_CONFIG_DIR, 'extensions'), // from config (resolved)
         typeMapping: {
           uuid: 'string',
         }, // from config

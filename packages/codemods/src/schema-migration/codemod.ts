@@ -147,9 +147,8 @@ export class Codemod {
     if (this.finalOptions.traitsDir) {
       mkdirSync(resolve(this.finalOptions.traitsDir), { recursive: true });
     }
-    if (this.finalOptions.extensionsDir) {
-      mkdirSync(resolve(this.finalOptions.extensionsDir), { recursive: true });
-    }
+    // extensions are now co-located with their schemas
+    // in resourcesDir (for resource-extension) and traitsDir (for trait-extension)
     if (this.finalOptions.resourcesDir) {
       mkdirSync(resolve(this.finalOptions.resourcesDir), { recursive: true });
     }

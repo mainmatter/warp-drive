@@ -116,7 +116,8 @@ describe('AST utilities', () => {
 
       expect(artifact.type).toBe('resource-type');
       expect(artifact.name).toBe('UserSchema');
-      expect(artifact.suggestedFileName).toBe('user.schema.types.ts');
+      // Types are now merged into .schema files
+      expect(artifact.suggestedFileName).toBe('user.schema.ts');
       expect(artifact.code).toMatchSnapshot('resource-type artifact code');
     });
 
@@ -127,7 +128,8 @@ describe('AST utilities', () => {
 
       expect(artifact.type).toBe('extension-type');
       expect(artifact.name).toBe('UserExtension');
-      expect(artifact.suggestedFileName).toBe('user.ts');
+      // Extensions now use .ext suffix
+      expect(artifact.suggestedFileName).toBe('user.ext.ts');
       expect(artifact.code).toMatchSnapshot('extension-type artifact code');
     });
 
@@ -138,7 +140,8 @@ describe('AST utilities', () => {
 
       expect(artifact.type).toBe('trait-type');
       expect(artifact.name).toBe('FileableTrait');
-      expect(artifact.suggestedFileName).toBe('fileable.schema.types.ts');
+      // Types are now merged into .schema files
+      expect(artifact.suggestedFileName).toBe('fileable.schema.ts');
       expect(artifact.code).toMatchSnapshot('trait-type artifact code');
     });
 
@@ -148,7 +151,8 @@ describe('AST utilities', () => {
       const artifact = createTypeArtifact('test', 'TestInterface', properties);
 
       expect(artifact.type).toBe('type');
-      expect(artifact.suggestedFileName).toBe('test.schema.types.ts');
+      // Types are now merged into .schema files
+      expect(artifact.suggestedFileName).toBe('test.schema.ts');
     });
 
     it('includes extends clause and imports when provided', () => {
@@ -245,15 +249,15 @@ describe('AST utilities', () => {
 
       // Test that data-field-model maps to data-field trait
       const result1 = transformModelToResourceImport('data-field', 'User', options);
-      expect(result1).toBe("type { DataFieldTrait as DataField } from 'my-app/data/traits/data-field.schema.types'");
+      expect(result1).toBe("type { DataFieldTrait as DataField } from 'my-app/data/traits/data-field.schema'");
 
       // Test that base-model maps to base trait
       const result2 = transformModelToResourceImport('base', 'User', options);
-      expect(result2).toBe("type { BaseTrait as Base } from 'my-app/data/traits/base.schema.types'");
+      expect(result2).toBe("type { BaseTrait as Base } from 'my-app/data/traits/base.schema'");
 
       // Test that regular models still go to resources (interface name comes from modelName param)
       const result3 = transformModelToResourceImport('user', 'Document', options);
-      expect(result3).toBe("type { Document } from 'my-app/data/resources/user.schema.types'");
+      expect(result3).toBe("type { Document } from 'my-app/data/resources/user.schema'");
     });
 
     it('generates trait imports for connected mixins', () => {
@@ -265,7 +269,7 @@ describe('AST utilities', () => {
 
       const result = transformModelToResourceImport('workstreamable', 'User', options);
       expect(result).toBe(
-        "type { WorkstreamableTrait as Workstreamable } from 'my-app/data/traits/workstreamable.schema.types'"
+        "type { WorkstreamableTrait as Workstreamable } from 'my-app/data/traits/workstreamable.schema'"
       );
     });
 
@@ -279,19 +283,19 @@ describe('AST utilities', () => {
 
       // Test that existing model routes to resource import
       const result1 = transformModelToResourceImport('user', 'User', options);
-      expect(result1).toBe("type { User } from 'my-app/data/resources/user.schema.types'");
+      expect(result1).toBe("type { User } from 'my-app/data/resources/user.schema'");
 
       // Test that mixin without model routes to trait import
       const result2 = transformModelToResourceImport('shareable', 'Shareable', options);
-      expect(result2).toBe("type { ShareableTrait as Shareable } from 'my-app/data/traits/shareable.schema.types'");
+      expect(result2).toBe("type { ShareableTrait as Shareable } from 'my-app/data/traits/shareable.schema'");
 
       // Test that suggested mixin routes to trait import
       const result3 = transformModelToResourceImport('suggested', 'Suggested', options);
-      expect(result3).toBe("type { SuggestedTrait as Suggested } from 'my-app/data/traits/suggested.schema.types'");
+      expect(result3).toBe("type { SuggestedTrait as Suggested } from 'my-app/data/traits/suggested.schema'");
 
       // Test that non-existent type defaults to resource
       const result4 = transformModelToResourceImport('nonexistent', 'Nonexistent', options);
-      expect(result4).toBe("type { Nonexistent } from 'my-app/data/resources/nonexistent.schema.types'");
+      expect(result4).toBe("type { Nonexistent } from 'my-app/data/resources/nonexistent.schema'");
     });
 
     it('handles models with same name as mixins by prioritizing model', () => {
@@ -304,48 +308,48 @@ describe('AST utilities', () => {
 
       // Test that when both model and mixin exist, model takes priority
       const result1 = transformModelToResourceImport('notification', 'Notification', options);
-      expect(result1).toBe("type { Notification } from 'my-app/data/resources/notification.schema.types'");
+      expect(result1).toBe("type { Notification } from 'my-app/data/resources/notification.schema'");
 
       // Test that mixin-only still works
       const result2 = transformModelToResourceImport('shareable', 'Shareable', options);
-      expect(result2).toBe("type { ShareableTrait as Shareable } from 'my-app/data/traits/shareable.schema.types'");
+      expect(result2).toBe("type { ShareableTrait as Shareable } from 'my-app/data/traits/shareable.schema'");
     });
 
     it('prefers extension imports when model has extension', () => {
+      // Note: Types are now imported from .schema files regardless of extensions
+      // Extensions (.ext files) contain runtime behavior, not types
       const options = {
         modelsWithExtensions: new Set(['user', 'audit-survey']),
-        extensionsImport: 'my-app/data/extensions',
         resourcesImport: 'my-app/data/resources',
       };
 
-      // Test that model with extension routes to extension import
+      // All types come from .schema files
       const result1 = transformModelToResourceImport('user', 'User', options);
-      expect(result1).toBe("type { UserExtension as User } from 'my-app/data/extensions/user'");
+      expect(result1).toBe("type { User } from 'my-app/data/resources/user.schema'");
 
-      // Test that model with extension and different import name preserves alias
       const result2 = transformModelToResourceImport('audit-survey', 'AuditSurvey', options);
-      expect(result2).toBe("type { AuditSurveyExtension as AuditSurvey } from 'my-app/data/extensions/audit-survey'");
+      expect(result2).toBe("type { AuditSurvey } from 'my-app/data/resources/audit-survey.schema'");
 
-      // Test that model without extension falls back to schema.types
+      // Test that model without extension also uses .schema
       const result3 = transformModelToResourceImport('other-model', 'OtherModel', options);
-      expect(result3).toBe("type { OtherModel } from 'my-app/data/resources/other-model.schema.types'");
+      expect(result3).toBe("type { OtherModel } from 'my-app/data/resources/other-model.schema'");
     });
 
     it('prefers extension imports over resource imports when both available', () => {
+      // Note: Types are now imported from .schema files regardless of extensions
       const options = {
         modelsWithExtensions: new Set(['user']),
         allModelFiles: ['/app/models/user.js', '/app/models/company.js'],
-        extensionsImport: 'my-app/data/extensions',
         resourcesImport: 'my-app/data/resources',
       };
 
-      // User has extension, should prefer extension import
+      // All types come from .schema files
       const result1 = transformModelToResourceImport('user', 'User', options);
-      expect(result1).toBe("type { UserExtension as User } from 'my-app/data/extensions/user'");
+      expect(result1).toBe("type { User } from 'my-app/data/resources/user.schema'");
 
-      // Company has model but no extension, should use resource import
+      // Company uses .schema as well
       const result2 = transformModelToResourceImport('company', 'Company', options);
-      expect(result2).toBe("type { Company } from 'my-app/data/resources/company.schema.types'");
+      expect(result2).toBe("type { Company } from 'my-app/data/resources/company.schema'");
     });
 
     it('handles empty modelsWithExtensions set', () => {
@@ -355,17 +359,19 @@ describe('AST utilities', () => {
       };
 
       const result = transformModelToResourceImport('user', 'User', options);
-      expect(result).toBe("type { User } from 'my-app/data/resources/user.schema.types'");
+      expect(result).toBe("type { User } from 'my-app/data/resources/user.schema'");
     });
 
-    it('uses default extensions path when extensionsImport not provided', () => {
+    it('uses default resource path when resourcesImport not provided', () => {
+      // Note: Types are now imported from .schema files
       const options = {
         modelsWithExtensions: new Set(['user']),
         resourcesImport: 'my-app/data/resources',
       };
 
       const result = transformModelToResourceImport('user', 'User', options);
-      expect(result).toBe("type { UserExtension as User } from '../extensions/user'");
+      // All type imports come from .schema files
+      expect(result).toBe("type { User } from 'my-app/data/resources/user.schema'");
     });
 
     it('prioritizes trait imports over extension imports for intermediate models', () => {
@@ -373,13 +379,12 @@ describe('AST utilities', () => {
         intermediateModelPaths: ['my-app/core/base-model'],
         modelsWithExtensions: new Set(['base']), // Even if base has extension, trait takes priority
         traitsImport: 'my-app/data/traits',
-        extensionsImport: 'my-app/data/extensions',
         resourcesImport: 'my-app/data/resources',
       };
 
       // Intermediate models should always go to traits
       const result = transformModelToResourceImport('base', 'Base', options);
-      expect(result).toBe("type { BaseTrait as Base } from 'my-app/data/traits/base.schema.types'");
+      expect(result).toBe("type { BaseTrait as Base } from 'my-app/data/traits/base.schema'");
     });
   });
 });

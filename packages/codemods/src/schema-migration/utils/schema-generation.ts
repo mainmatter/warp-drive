@@ -392,12 +392,12 @@ export function createTypeArtifact(
   // Determine the type based on context to help with directory routing
   const typeString = artifactContext ? `${artifactContext}-type` : 'type';
 
-  // Generate filename - use .schema.types for all artifact types for consistency
+  // Generate filename - types are now merged into .schema files
   const extension = fileExtension || '.ts';
   const fileName =
     artifactContext === 'extension'
-      ? `${baseName}${extension}` // Extensions don't need .types suffix
-      : `${baseName}.schema.types${extension}`; // Use .schema.types for schemas and traits
+      ? `${baseName}.ext${extension}` // Extensions use .ext suffix
+      : `${baseName}.schema${extension}`; // Schemas and traits use .schema (types merged in)
 
   return {
     type: typeString,
@@ -716,7 +716,7 @@ function generateJSDocTypedef(
 
 /**
  * Generate a merged schema file containing both the schema object and type interface
- * This replaces the separate .schema.js and .schema.types.ts files
+ * This creates a single .schema.js or .schema.ts file with everything needed
  */
 export function generateMergedSchemaCode(opts: MergedSchemaOptions): string {
   const {

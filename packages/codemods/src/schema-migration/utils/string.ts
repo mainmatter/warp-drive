@@ -7,8 +7,8 @@ export const FILE_EXTENSION_JT_REGEX = /\.[jt]s$/;
 /** Matches filename with .js or .ts extension at end of path */
 export const FILENAME_WITH_EXTENSION_REGEX = /\/[^/]+\.(js|ts)$/;
 
-/** Matches .schema.types suffix */
-export const SCHEMA_TYPES_SUFFIX_REGEX = /\.schema\.types$/;
+/** Matches .schema suffix */
+export const SCHEMA_SUFFIX_REGEX = /\.schema$/;
 
 /** Matches kebab-case pattern to convert to camelCase (e.g., -a -> A) */
 export const KEBAB_TO_CAMEL_REGEX = /-([a-z])/g;
@@ -58,11 +58,14 @@ export const IMPORT_TYPE_DEFAULT_REGEX = /import\s+type\s+([A-Z][a-zA-Z0-9]*)\s+
 /** Matches regular 'import X from' pattern */
 export const IMPORT_DEFAULT_REGEX = /import\s+([A-Z][a-zA-Z0-9]*)\s+from/g;
 
-/** Matches trait or resource schema.types import paths */
-export const SCHEMA_TYPES_PATH_REGEX = /\/(traits|resources)\/([^/'"]+)\.schema\.types$/;
+/** Matches trait or resource schema import paths */
+export const SCHEMA_PATH_REGEX = /\/(traits|resources)\/([^/'"]+)\.schema$/;
 
-/** Matches extension import paths */
+/** Matches extension import paths (legacy - /extensions/ directory) */
 export const EXTENSION_PATH_REGEX = /\/extensions\/([^/'"]+)$/;
+
+/** Matches .ext file import paths (new pattern) */
+export const EXT_FILE_PATH_REGEX = /\/([^/'"]+)\.ext$/;
 
 /** Matches relative type import statement: import type X from './path' */
 export const RELATIVE_TYPE_IMPORT_REGEX = /import\s+type\s+(\w+)\s+from\s+['"](\.\/.+?)['"];?/;

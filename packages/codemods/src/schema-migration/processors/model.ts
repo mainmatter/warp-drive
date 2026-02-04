@@ -77,7 +77,7 @@ import {
   RELATIVE_TYPE_IMPORT_REGEX,
   removeFileExtension,
   removeQuoteChars,
-  SCHEMA_TYPES_SUFFIX_REGEX,
+  SCHEMA_SUFFIX_REGEX,
   toKebabCase,
   TRAILING_MODEL_SUFFIX_REGEX,
   WILDCARD_REGEX,
@@ -484,8 +484,6 @@ function replacePattern(importPath: string, pattern: string, dir: string): strin
 
 /**
  * Check if a model file will produce an extension artifact
- * This is used for pre-analysis to determine which models have extensions
- * so that imports can reference extension types instead of schema types
  */
 export function willModelHaveExtension(filePath: string, source: string, options: TransformOptions): boolean {
   const analysis = analyzeModelFile(filePath, source, options);
@@ -586,15 +584,25 @@ export function processIntermediateModelsToTraits(
         options
       );
 
-      // If we have a traitsDir, write the artifacts immediately so subsequent models can reference them
-      if ((options.traitsDir || options.extensionsDir) && !options.dryRun) {
+      // If we have a traitsDir or resourcesDir, write the artifacts immediately so subsequent models can reference them
+      // Extensions are now co-located with their schemas
+      if ((options.traitsDir || options.resourcesDir) && !options.dryRun) {
         for (const artifact of traitArtifacts) {
           let baseDir: string | undefined;
 
-          if ((artifact.type === 'trait' || artifact.type === 'trait-type') && options.traitsDir) {
+          if (
+            (artifact.type === 'trait' || artifact.type === 'trait-type' || artifact.type === 'trait-extension') &&
+            options.traitsDir
+          ) {
             baseDir = options.traitsDir;
-          } else if ((artifact.type === 'extension' || artifact.type === 'extension-type') && options.extensionsDir) {
-            baseDir = options.extensionsDir;
+          } else if (
+            (artifact.type === 'resource-extension' ||
+              artifact.type === 'extension' ||
+              artifact.type === 'extension-type') &&
+            options.resourcesDir
+          ) {
+            // Extensions are now co-located with resources
+            baseDir = options.resourcesDir;
           }
 
           if (baseDir) {
@@ -751,8 +759,6 @@ function generateRegularModelArtifacts(
   });
 
   // Create extension artifact preserving original file content
-  // For models, extensions should extend the model interface
-  // Import path now uses .schema instead of .schema.types since types are merged
   const modelInterfaceName = modelName;
   const modelImportPath = options?.resourcesImport
     ? `${options.resourcesImport}/${baseName}.schema`
@@ -964,7 +970,6 @@ function generateIntermediateModelTraitArtifacts(
   });
 
   // Add imports for other traits this trait extends
-  // Now check for .schema.ts files instead of .schema.types.ts
   if (mixinTraits.length > 0) {
     mixinTraits.forEach((trait) => {
       const otherTraitTypeName = `${toPascalCase(trait)}Trait`;
@@ -980,7 +985,6 @@ function generateIntermediateModelTraitArtifacts(
       }
 
       // Import trait type - use configured path or default to relative
-      // Now uses .schema instead of .schema.types
       const traitImport = options?.traitsImport
         ? `type { ${otherTraitTypeName} } from '${options.traitsImport}/${trait}.schema'`
         : `type { ${otherTraitTypeName} } from './${trait}.schema'`;
@@ -1038,7 +1042,6 @@ function generateIntermediateModelTraitArtifacts(
   if (extensionProperties.length > 0) {
     // Create the extension artifact preserving original file content
     // For traits, extensions should extend the trait interface
-    // Import path now uses .schema instead of .schema.types
     const traitInterfaceName = traitPascalName;
     const traitImportPath = options?.traitsImport
       ? `${options.traitsImport}/${traitName}.schema`
@@ -1974,33 +1977,33 @@ function transformModelImportsInSource(source: string, root: SgNode): string {
     // Check if this is a relative import to another model file
     // Pattern 1: import type SomeThing from './some-thing';
     const relativeImportMatch = importText.match(RELATIVE_TYPE_IMPORT_REGEX);
-    // Pattern 2: import type { SomeThing } from './some-thing.schema.types';
+    // Pattern 2: import type { SomeThing } from './some-thing.schema';
     const namedImportMatch = importText.match(NAMED_TYPE_IMPORT_REGEX);
 
     if (relativeImportMatch) {
       const [fullMatch, typeName, relativePath] = relativeImportMatch;
 
-      // Transform to named import from schema.types
+      // Transform to named import from schema
       // e.g., import type SomeThing from './some-thing.ts';
-      // becomes import type { SomeThing } from './some-thing.schema.types';
+      // becomes import type { SomeThing } from './some-thing.schema';
       // But remove 'Model' suffix if present since interfaces don't use it
       const pathWithoutExtension = removeFileExtension(relativePath);
       const interfaceName = typeName.endsWith('Model') ? typeName.slice(0, -5) : typeName;
 
       const transformedImport =
         typeName !== interfaceName
-          ? `import type { ${interfaceName} as ${typeName} } from '${pathWithoutExtension}.schema.types';`
-          : `import type { ${typeName} } from '${pathWithoutExtension}.schema.types';`;
+          ? `import type { ${interfaceName} as ${typeName} } from '${pathWithoutExtension}.schema';`
+          : `import type { ${typeName} } from '${pathWithoutExtension}.schema';`;
 
       result = result.replace(fullMatch, transformedImport);
     } else if (namedImportMatch) {
       const [fullMatch, typeName, relativePath] = namedImportMatch;
 
-      // Handle named imports from schema.types files - fix Model suffix issue
-      if (relativePath.includes('.schema.types') && typeName.endsWith('Model')) {
-        const pathWithoutExtension = relativePath.replace(SCHEMA_TYPES_SUFFIX_REGEX, '');
+      // Handle named imports from schema files - fix Model suffix issue
+      if (relativePath.includes('.schema') && typeName.endsWith('Model')) {
+        const pathWithoutExtension = relativePath.replace(SCHEMA_SUFFIX_REGEX, '');
         const interfaceName = typeName.slice(0, -5); // Remove 'Model' suffix
-        const transformedImport = `import type { ${interfaceName} as ${typeName} } from '${pathWithoutExtension}.schema.types';`;
+        const transformedImport = `import type { ${interfaceName} as ${typeName} } from '${pathWithoutExtension}.schema';`;
 
         result = result.replace(fullMatch, transformedImport);
       }
