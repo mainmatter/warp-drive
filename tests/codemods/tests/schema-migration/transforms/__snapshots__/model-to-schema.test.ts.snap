@@ -1,64 +1,9 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`model-to-schema transform (artifacts) > TypeScript type artifacts > generates resource-type and extension artifacts when model has methods and computed properties > model extension code 1`] = `
-"import Model, { attr } from '@ember-data/model';
-
-// The following is a workaround for the fact that we can't properly do
-// declaration merging in .js files. If this is converted to a .ts file,
-// we can remove this and just use the declaration merging.
-/** @import { ProcessedModel } from 'test-app/data/resources/processed-model.schema.types' */
-/** @type {{ new(): ProcessedModel }} */
-const Base = class {};
-export class ProcessedModelExtension extends Base {
-  get displayName() {
-  		return \`Processed: \${this.name}\`;
-  	}
-
-  processContent() {
-  		return (this.content || '').toUpperCase();
-  	}
-}
-
-/** @typedef {typeof ProcessedModelExtension} ProcessedModelExtensionSignature */"
-`;
-
-exports[`model-to-schema transform (artifacts) > TypeScript type artifacts > generates resource-type and extension artifacts when model has methods and computed properties > model schema type interface 1`] = `
-"import type { Type } from '@ember-data/core-types/symbols';
-
-export interface ProcessedModel {
-	readonly [Type]: 'processed-model';
-	readonly name: string | null;
-	readonly content: string | null;
-}
-"
-`;
-
-exports[`model-to-schema transform (artifacts) > TypeScript type artifacts > generates resource-type artifact with proper interface for basic models > basic schema type interface 1`] = `
-"import type { Type } from '@ember-data/core-types/symbols';
-import type { Company } from 'test-app/data/resources/company.schema.types';
-import type { Project } from 'test-app/data/resources/project.schema.types';
-import type { AsyncHasMany } from '@ember-data/model';
-
-export interface User {
-	readonly [Type]: 'user';
-	readonly name: string | null;
-	readonly isActive: boolean | null;
-	readonly company: Company | null;
-	readonly projects: AsyncHasMany<Project>;
-}
-"
-`;
-
 exports[`model-to-schema transform (artifacts) > TypeScript type artifacts > generates schema and extension artifacts when model has methods and computed properties > model extension code 1`] = `
 "import Model, { attr } from '@ember-data/model';
 
-// The following is a workaround for the fact that we can't properly do
-// declaration merging in .js files. If this is converted to a .ts file,
-// we can remove this and just use the declaration merging.
-/** @import { ProcessedModel } from 'test-app/data/resources/processed-model.schema' */
-/** @type {{ new(): ProcessedModel }} */
-const Base = class {};
-export class ProcessedModelExtension extends Base {
+export class ProcessedModelExtension {
   get displayName() {
   		return \`Processed: \${this.name}\`;
   	}
@@ -66,17 +11,11 @@ export class ProcessedModelExtension extends Base {
   processContent() {
   		return (this.content || '').toUpperCase();
   	}
-}
-
-/** @typedef {typeof ProcessedModelExtension} ProcessedModelExtensionSignature */"
+}"
 `;
 
 exports[`model-to-schema transform (artifacts) > TypeScript type artifacts > generates schema and extension artifacts when model has methods and computed properties > model schema with merged types 1`] = `
-"/**
- * @import { Type } from "@ember-data/core-types/symbols"
- */
-/** @type {const} */
-const ProcessedModelSchema = {
+"const ProcessedModelSchema = {
   'type': 'processed-model',
   'legacy': true,
   'identity': {
@@ -97,24 +36,11 @@ const ProcessedModelSchema = {
   ]
 };
 
-export default ProcessedModelSchema;
-
-/** @typedef {{
-  readonly [Type]: 'processed-model';
-  readonly name: string | null;
-  readonly content: string | null;
-}} ProcessedModel */"
+export default ProcessedModelSchema;"
 `;
 
 exports[`model-to-schema transform (artifacts) > TypeScript type artifacts > generates schema with merged types for basic models > basic schema with merged types 1`] = `
-"/**
- * @import { Type } from "@ember-data/core-types/symbols"
- * @import { Company } from "test-app/data/resources/company.schema.types"
- * @import { Project } from "test-app/data/resources/project.schema.types"
- * @import { AsyncHasMany } from "@ember-data/model"
- */
-/** @type {const} */
-const UserSchema = {
+"const UserSchema = {
   'type': 'user',
   'legacy': true,
   'identity': {
@@ -154,23 +80,11 @@ const UserSchema = {
   ]
 };
 
-export default UserSchema;
-
-/** @typedef {{
-  readonly [Type]: 'user';
-  readonly name: string | null;
-  readonly isActive: boolean | null;
-  readonly company: Company | null;
-  readonly projects: AsyncHasMany<Project>;
-}} User */"
+export default UserSchema;"
 `;
 
 exports[`model-to-schema transform (artifacts) > TypeScript type artifacts > handles custom type mappings in merged schema files > custom type mappings in merged schema 1`] = `
-"/**
- * @import { Type } from "@ember-data/core-types/symbols"
- */
-/** @type {const} */
-const TypedModelSchema = {
+"const TypedModelSchema = {
   'type': 'typed-model',
   'legacy': true,
   'identity': {
@@ -196,40 +110,11 @@ const TypedModelSchema = {
   ]
 };
 
-export default TypedModelSchema;
-
-/** @typedef {{
-  readonly [Type]: 'typed-model';
-  readonly id: string | null;
-  readonly amount: number | null;
-  readonly metadata: Record<string, unknown> | null;
-}} TypedModel */"
-`;
-
-exports[`model-to-schema transform (artifacts) > TypeScript type artifacts > handles custom type mappings in schema type interfaces > custom type mappings interface 1`] = `
-"import type { Type } from '@ember-data/core-types/symbols';
-
-export interface TypedModel {
-	readonly [Type]: 'typed-model';
-	readonly id: string | null;
-	readonly amount: number | null;
-	readonly metadata: Record<string, unknown> | null;
-}
-"
+export default TypedModelSchema;"
 `;
 
 exports[`model-to-schema transform (artifacts) > TypeScript type artifacts > handles relationship types correctly in merged schema files > relationship types in merged schema 1`] = `
-"/**
- * @import { Type } from "@ember-data/core-types/symbols"
- * @import { User } from "test-app/data/resources/user.schema.types"
- * @import { Company } from "test-app/data/resources/company.schema.types"
- * @import { File } from "test-app/data/resources/file.schema.types"
- * @import { HasMany } from "@ember-data/model"
- * @import { Tag } from "test-app/data/resources/tag.schema.types"
- * @import { AsyncHasMany } from "@ember-data/model"
- */
-/** @type {const} */
-const RelationshipModelSchema = {
+"const RelationshipModelSchema = {
   'type': 'relationship-model',
   'legacy': true,
   'identity': {
@@ -277,44 +162,11 @@ const RelationshipModelSchema = {
   ]
 };
 
-export default RelationshipModelSchema;
-
-/** @typedef {{
-  readonly [Type]: 'relationship-model';
-  readonly name: string | null;
-  readonly owner: User | null;
-  readonly company: Promise<Company>;
-  readonly attachments: HasMany<File>;
-  readonly tags: AsyncHasMany<Tag>;
-}} RelationshipModel */"
-`;
-
-exports[`model-to-schema transform (artifacts) > TypeScript type artifacts > handles relationship types correctly in schema type interfaces > relationship types interface 1`] = `
-"import type { Type } from '@ember-data/core-types/symbols';
-import type { User } from 'test-app/data/resources/user.schema.types';
-import type { Company } from 'test-app/data/resources/company.schema.types';
-import type { File } from 'test-app/data/resources/file.schema.types';
-import type { HasMany } from '@ember-data/model';
-import type { Tag } from 'test-app/data/resources/tag.schema.types';
-import type { AsyncHasMany } from '@ember-data/model';
-
-export interface RelationshipModel {
-	readonly [Type]: 'relationship-model';
-	readonly name: string | null;
-	readonly owner: User | null;
-	readonly company: Promise<Company>;
-	readonly attachments: HasMany<File>;
-	readonly tags: AsyncHasMany<Tag>;
-}
-"
+export default RelationshipModelSchema;"
 `;
 
 exports[`model-to-schema transform (artifacts) > TypeScript type artifacts > uses unknown type for unsupported transforms > unknown types in merged schema 1`] = `
-"/**
- * @import { Type } from "@ember-data/core-types/symbols"
- */
-/** @type {const} */
-const UnknownTypesModelSchema = {
+"const UnknownTypesModelSchema = {
   'type': 'unknown-types-model',
   'legacy': true,
   'identity': {
@@ -340,30 +192,11 @@ const UnknownTypesModelSchema = {
   ]
 };
 
-export default UnknownTypesModelSchema;
-
-/** @typedef {{
-  readonly [Type]: 'unknown-types-model';
-  readonly customField: unknown | null;
-  readonly anotherField: unknown | null;
-  readonly knownField: string | null;
-}} UnknownTypesModel */"
-`;
-
-exports[`model-to-schema transform (artifacts) > TypeScript type artifacts > uses unknown type for unsupported transforms > unknown types interface 1`] = `
-"import type { Type } from '@ember-data/core-types/symbols';
-
-export interface UnknownTypesModel {
-	readonly [Type]: 'unknown-types-model';
-	readonly customField: unknown | null;
-	readonly anotherField: unknown | null;
-	readonly knownField: string | null;
-}
-"
+export default UnknownTypesModelSchema;"
 `;
 
 exports[`model-to-schema transform (artifacts) > basic functionality > handles complex field options correctly > complex field options 1`] = `
-"export const ComplexModelSchema = {
+"const ComplexModelSchema = {
   'type': 'complex-model',
   'legacy': true,
   'identity': {
@@ -408,11 +241,13 @@ exports[`model-to-schema transform (artifacts) > basic functionality > handles c
       }
     }
   ]
-};"
+};
+
+export default ComplexModelSchema;"
 `;
 
 exports[`model-to-schema transform (artifacts) > basic functionality > handles model with mixins > schema with mixins 1`] = `
-"export const DocumentSchema = {
+"const DocumentSchema = {
   'type': 'document',
   'legacy': true,
   'identity': {
@@ -435,14 +270,16 @@ exports[`model-to-schema transform (artifacts) > basic functionality > handles m
     'fileable',
     'timestampable'
   ]
-};"
+};
+
+export default DocumentSchema;"
 `;
 
 exports[`model-to-schema transform (artifacts) > basic functionality > preserves TypeScript syntax in extension properties > typescript extension 1`] = `
 "import Model, { attr } from '@ember-data/model';
 import { service } from '@ember/service';
 
-import type { TypedModel } from 'test-app/data/resources/typed-model.schema.types';
+import type { TypedModel } from 'test-app/data/resources/typed-model.schema';
 
 export interface TypedModelExtension extends TypedModel {}
 
@@ -471,14 +308,9 @@ exports[`model-to-schema transform (artifacts) > basic functionality > produces 
     "type": "schema",
   },
   {
-    "name": "User",
-    "suggestedFileName": "user.schema.types.ts",
-    "type": "resource-type",
-  },
-  {
     "name": "UserExtension",
-    "suggestedFileName": "user.js",
-    "type": "extension",
+    "suggestedFileName": "user.ext.js",
+    "type": "resource-extension",
   },
 ]
 `;
@@ -486,13 +318,7 @@ exports[`model-to-schema transform (artifacts) > basic functionality > produces 
 exports[`model-to-schema transform (artifacts) > basic functionality > produces schema and extension artifacts for basic model > extension code 1`] = `
 "import Model, { attr, hasMany, belongsTo } from '@ember-data/model';
 
-// The following is a workaround for the fact that we can't properly do
-// declaration merging in .js files. If this is converted to a .ts file,
-// we can remove this and just use the declaration merging.
-/** @import { User } from 'test-app/data/resources/user.schema.types' */
-/** @type {{ new(): User }} */
-const Base = class {};
-export class UserExtension extends Base {
+export class UserExtension {
   get displayName() {
   		return this.name || this.email;
   	}
@@ -500,13 +326,11 @@ export class UserExtension extends Base {
   async save() {
   		return super.save();
   	}
-}
-
-/** @typedef {typeof UserExtension} UserExtensionSignature */"
+}"
 `;
 
 exports[`model-to-schema transform (artifacts) > basic functionality > produces schema and extension artifacts for basic model > schema code 1`] = `
-"export const UserSchema = {
+"const UserSchema = {
   'type': 'user',
   'legacy': true,
   'identity': {
@@ -551,11 +375,13 @@ exports[`model-to-schema transform (artifacts) > basic functionality > produces 
       }
     }
   ]
-};"
+};
+
+export default UserSchema;"
 `;
 
 exports[`model-to-schema transform (artifacts) > basic functionality > supports alternate import sources > custom import source 1`] = `
-"export const CustomModelSchema = {
+"const CustomModelSchema = {
   'type': 'custom-model',
   'legacy': true,
   'identity': {
@@ -577,15 +403,13 @@ exports[`model-to-schema transform (artifacts) > basic functionality > supports 
       }
     }
   ]
-};"
+};
+
+export default CustomModelSchema;"
 `;
 
 exports[`model-to-schema transform (artifacts) > custom type mappings > applies custom type mappings to attribute types > custom type mappings in merged schema 1`] = `
-"/**
- * @import { Type } from "@ember-data/core-types/symbols"
- */
-/** @type {const} */
-const CustomTypesModelSchema = {
+"const CustomTypesModelSchema = {
   'type': 'custom-types-model',
   'legacy': true,
   'identity': {
@@ -611,41 +435,36 @@ const CustomTypesModelSchema = {
   ]
 };
 
-export default CustomTypesModelSchema;
-
-/** @typedef {{
-  readonly [Type]: 'custom-types-model';
-  readonly id: string | null;
-  readonly createdAt: Date | null;
-  readonly price: number | null;
-}} CustomTypesModel */"
-`;
-
-exports[`model-to-schema transform (artifacts) > custom type mappings > applies custom type mappings to attribute types > custom type mappings in schema types 1`] = `
-"import type { Type } from '@ember-data/core-types/symbols';
-
-export interface CustomTypesModel {
-	readonly [Type]: 'custom-types-model';
-	readonly id: string | null;
-	readonly createdAt: Date | null;
-	readonly price: number | null;
-}
-"
+export default CustomTypesModelSchema;"
 `;
 
 exports[`model-to-schema transform (artifacts) > custom type mappings > falls back to unknown for unmapped custom types > unknown fallback for unmapped types 1`] = `
-"import type { Type } from '@ember-data/core-types/symbols';
+"const UnmappedTypesModelSchema = {
+  'type': 'unmapped-types-model',
+  'legacy': true,
+  'identity': {
+    'kind': '@id',
+    'name': 'id'
+  },
+  'fields': [
+    {
+      'kind': 'attribute',
+      'name': 'field1',
+      'type': 'unknown-transform'
+    },
+    {
+      'kind': 'attribute',
+      'name': 'field2',
+      'type': 'another-unknown'
+    }
+  ]
+};
 
-export interface UnmappedTypesModel {
-	readonly [Type]: 'unmapped-types-model';
-	readonly field1: unknown | null;
-	readonly field2: unknown | null;
-}
-"
+export default UnmappedTypesModelSchema;"
 `;
 
 exports[`model-to-schema transform (artifacts) > edge cases > handles aliased imports correctly > aliased imports 1`] = `
-"export const AliasedModelSchema = {
+"const AliasedModelSchema = {
   'type': 'aliased-model',
   'legacy': true,
   'identity': {
@@ -664,11 +483,13 @@ exports[`model-to-schema transform (artifacts) > edge cases > handles aliased im
       'type': 'item'
     }
   ]
-};"
+};
+
+export default AliasedModelSchema;"
 `;
 
 exports[`model-to-schema transform (artifacts) > edge cases > preserves complex object literal options > complex options 1`] = `
-"export const ComplexOptionsModelSchema = {
+"const ComplexOptionsModelSchema = {
   'type': 'complex-options-model',
   'legacy': true,
   'identity': {
@@ -688,20 +509,13 @@ exports[`model-to-schema transform (artifacts) > edge cases > preserves complex 
       }
     }
   ]
-};"
+};
+
+export default ComplexOptionsModelSchema;"
 `;
 
 exports[`model-to-schema transform (artifacts) > mirror flag > uses configured emberDataImportSource for HasMany types in merged schema > custom EmberData source for HasMany types in merged schema 1`] = `
-"/**
- * @import { Type } from "@auditboard/warp-drive/v1/core-types/symbols"
- * @import { Tag } from "test-app/data/resources/tag.schema.types"
- * @import { HasMany } from "@auditboard/warp-drive/v1/model"
- * @import { Project } from "test-app/data/resources/project.schema.types"
- * @import { AsyncHasMany } from "@auditboard/warp-drive/v1/model"
- * @import { User } from "test-app/data/resources/user.schema.types"
- */
-/** @type {const} */
-const RelationshipModelSchema = {
+"const RelationshipModelSchema = {
   'type': 'relationship-model',
   'legacy': true,
   'identity': {
@@ -741,37 +555,11 @@ const RelationshipModelSchema = {
   ]
 };
 
-export default RelationshipModelSchema;
-
-/** @typedef {{
-  readonly [Type]: 'relationship-model';
-  readonly name: string | null;
-  readonly tags: HasMany<Tag>;
-  readonly projects: AsyncHasMany<Project>;
-  readonly owner: User | null;
-}} RelationshipModel */"
-`;
-
-exports[`model-to-schema transform (artifacts) > mirror flag > uses configured emberDataImportSource for HasMany types in type artifacts > custom EmberData source for HasMany types 1`] = `
-"import type { Type } from '@auditboard/warp-drive/v1/core-types/symbols';
-import type { Tag } from 'test-app/data/resources/tag.schema.types';
-import type { HasMany } from '@auditboard/warp-drive/v1/model';
-import type { Project } from 'test-app/data/resources/project.schema.types';
-import type { AsyncHasMany } from '@auditboard/warp-drive/v1/model';
-import type { User } from 'test-app/data/resources/user.schema.types';
-
-export interface RelationshipModel {
-	readonly [Type]: 'relationship-model';
-	readonly name: string | null;
-	readonly tags: HasMany<Tag>;
-	readonly projects: AsyncHasMany<Project>;
-	readonly owner: User | null;
-}
-"
+export default RelationshipModelSchema;"
 `;
 
 exports[`model-to-schema transform (artifacts) > mixin handling > extracts mixin names and converts them to trait references > single mixin schema 1`] = `
-"export const DocumentSchema = {
+"const DocumentSchema = {
   'type': 'document',
   'legacy': true,
   'identity': {
@@ -788,11 +576,13 @@ exports[`model-to-schema transform (artifacts) > mixin handling > extracts mixin
   'traits': [
     'fileable'
   ]
-};"
+};
+
+export default DocumentSchema;"
 `;
 
 exports[`model-to-schema transform (artifacts) > mixin handling > handles multiple mixins correctly > multiple mixins schema 1`] = `
-"export const ComplexDocumentSchema = {
+"const ComplexDocumentSchema = {
   'type': 'complex-document',
   'legacy': true,
   'identity': {
@@ -811,5 +601,7 @@ exports[`model-to-schema transform (artifacts) > mixin handling > handles multip
     'timestampable',
     'auditable'
   ]
-};"
+};
+
+export default ComplexDocumentSchema;"
 `;

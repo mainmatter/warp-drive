@@ -49,12 +49,14 @@ export default Mixin.create({});`;
       const trait = artifacts.find((a) => a.type === 'trait');
       expect(trait).toMatchInlineSnapshot(`
         {
-          "code": "export const emptyTrait = {
-          "name": "empty",
-          "mode": "legacy",
-          "fields": []
-        };",
-          "name": "emptyTrait",
+          "code": "const EmptyTrait = {
+          'name': 'empty',
+          'mode': 'legacy',
+          'fields': []
+        };
+
+        export default EmptyTrait;",
+          "name": "EmptyTrait",
           "suggestedFileName": "empty.schema.js",
           "type": "trait",
         }
@@ -80,35 +82,37 @@ export default Mixin.create({
       const extension = artifacts.find((a) => a.type === 'trait-extension');
       expect(trait).toMatchInlineSnapshot(`
         {
-          "code": "export const fileableTrait = {
-          "name": "fileable",
-          "mode": "legacy",
-          "fields": [
+          "code": "const FileableTrait = {
+          'name': 'fileable',
+          'mode': 'legacy',
+          'fields': [
             {
-              "name": "files",
-              "kind": "hasMany",
-              "type": "file",
-              "options": {
-                "as": "fileable",
-                "async": false
+              'name': 'files',
+              'kind': 'hasMany',
+              'type': 'file',
+              'options': {
+                'as': 'fileable',
+                'async': false
               }
             },
             {
-              "name": "name",
-              "kind": "attribute",
-              "type": "string"
+              'name': 'name',
+              'kind': 'attribute',
+              'type': 'string'
             },
             {
-              "name": "isActive",
-              "kind": "attribute",
-              "type": "boolean",
-              "options": {
-                "defaultValue": false
+              'name': 'isActive',
+              'kind': 'attribute',
+              'type': 'boolean',
+              'options': {
+                'defaultValue': false
               }
             }
           ]
-        };",
-          "name": "fileableTrait",
+        };
+
+        export default FileableTrait;",
+          "name": "FileableTrait",
           "suggestedFileName": "fileable.schema.js",
           "type": "trait",
         }

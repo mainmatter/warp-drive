@@ -697,11 +697,11 @@ export default class TestModel extends BaseModel {
     expect(collectFilesSnapshot(dataDir)['resources/typed.schema.ts']).toBeTruthy();
     expect(collectFilesSnapshot(dataDir)).toMatchInlineSnapshot(`
       {
-        "extensions/": "__dir__",
-        "extensions/typed.ts": "
+        "resources/": "__dir__",
+        "resources/typed.ext.ts": "
       import BaseModel from 'test-app/models/base-model';
 
-      import type { Typed } from 'test-app/data/resources/typed.schema.types';
+      import type { Typed } from 'test-app/data/resources/typed.schema';
 
       export interface TypedExtension extends Typed {}
 
@@ -716,9 +716,10 @@ export default class TestModel extends BaseModel {
       }
 
       export type TypedExtensionSignature = typeof TypedExtension;",
-        "resources/": "__dir__",
         "resources/typed.schema.ts": "
-      export const TypedSchema = {
+      import type { Type } from '@ember-data/core-types/symbols';
+      import type { StaticBaseModelTraitTrait } from 'test-app/data/traits/static-base-model-trait.schema';
+      const TypedSchema = {
         'type': 'typed',
         'legacy': true,
         'identity': {
@@ -732,15 +733,13 @@ export default class TestModel extends BaseModel {
         'objectExtensions': [
           'static-base-model-extension'
         ]
-      };",
-        "resources/typed.schema.types.ts": "
-      import type { Type } from '@ember-data/core-types/symbols';
-      import type { StaticBaseModelTraitTrait } from 'test-app/data/traits/static-base-model-trait.schema.types';
+      } as const;
+
+      export default TypedSchema;
 
       export interface Typed extends StaticBaseModelTraitTrait {
-      	readonly [Type]: 'typed';
-      }
-      ",
+        readonly [Type]: 'typed';
+      }",
         "traits/": "__dir__",
       }
     `);
@@ -773,11 +772,11 @@ export default class TestModel extends BaseModel {
     expect(collectFilesSnapshot(dataDir)['resources/typed.schema.ts']).toBeTruthy();
     expect(collectFilesSnapshot(dataDir)).toMatchInlineSnapshot(`
       {
-        "extensions/": "__dir__",
-        "extensions/typed.ts": "
+        "resources/": "__dir__",
+        "resources/typed.ext.ts": "
       import BaseModel from 'test-app/models/base-model.js';
 
-      import type { Typed } from 'test-app/data/resources/typed.schema.types';
+      import type { Typed } from 'test-app/data/resources/typed.schema';
 
       export interface TypedExtension extends Typed {}
 
@@ -792,9 +791,10 @@ export default class TestModel extends BaseModel {
       }
 
       export type TypedExtensionSignature = typeof TypedExtension;",
-        "resources/": "__dir__",
         "resources/typed.schema.ts": "
-      export const TypedSchema = {
+      import type { Type } from '@ember-data/core-types/symbols';
+      import type { StaticBaseModelTraitTrait } from 'test-app/data/traits/static-base-model-trait.schema';
+      const TypedSchema = {
         'type': 'typed',
         'legacy': true,
         'identity': {
@@ -808,15 +808,13 @@ export default class TestModel extends BaseModel {
         'objectExtensions': [
           'static-base-model-extension'
         ]
-      };",
-        "resources/typed.schema.types.ts": "
-      import type { Type } from '@ember-data/core-types/symbols';
-      import type { StaticBaseModelTraitTrait } from 'test-app/data/traits/static-base-model-trait.schema.types';
+      } as const;
+
+      export default TypedSchema;
 
       export interface Typed extends StaticBaseModelTraitTrait {
-      	readonly [Type]: 'typed';
-      }
-      ",
+        readonly [Type]: 'typed';
+      }",
         "traits/": "__dir__",
       }
     `);
@@ -855,10 +853,13 @@ export default class TestModel extends BaseModel {
     expect(collectFilesSnapshot(dataDir)['resources/typed.schema.ts']).toBeTruthy();
     expect(collectFilesSnapshot(dataDir)).toMatchInlineSnapshot(`
       {
-        "extensions/": "__dir__",
         "resources/": "__dir__",
         "resources/typed.schema.ts": "
-      export const TypedSchema = {
+      import type { Type } from '@ember-data/core-types/symbols';
+      import type { Framework } from 'test-app/data/resources/framework.schema';
+      import type { HasMany } from '@ember-data/model';
+      import type { StaticBaseModelTraitTrait } from 'test-app/data/traits/static-base-model-trait.schema';
+      const TypedSchema = {
         'type': 'typed',
         'legacy': true,
         'identity': {
@@ -897,21 +898,17 @@ export default class TestModel extends BaseModel {
         'objectExtensions': [
           'static-base-model-extension'
         ]
-      };",
-        "resources/typed.schema.types.ts": "
-      import type { Type } from '@ember-data/core-types/symbols';
-      import type { Framework } from 'test-app/data/resources/framework.schema.types';
-      import type { HasMany } from '@ember-data/model';
-      import type { StaticBaseModelTraitTrait } from 'test-app/data/traits/static-base-model-trait.schema.types';
+      } as const;
+
+      export default TypedSchema;
 
       export interface Typed extends StaticBaseModelTraitTrait {
-      	readonly [Type]: 'typed';
-      	readonly name: string | null;
-      	readonly description: string | null;
-      	readonly isForControlsAssessment: boolean | null;
-      	readonly frameworks: HasMany<Framework>;
-      }
-      ",
+        readonly [Type]: 'typed';
+        readonly name: string | null;
+        readonly description: string | null;
+        readonly isForControlsAssessment: boolean | null;
+        readonly frameworks: HasMany<Framework>;
+      }",
         "traits/": "__dir__",
       }
     `);

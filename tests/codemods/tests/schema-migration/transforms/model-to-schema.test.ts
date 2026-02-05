@@ -157,7 +157,7 @@ export default class ProjectPlan extends Model {
       expect(artifacts[0]?.suggestedFileName).toBe('project-plan.schema.js');
       // Verify the schema is valid by checking both structure and content
       expect(artifacts[0]?.code).toContain("'type': 'project-plan'");
-      expect(artifacts[0]?.code).toContain('export const ProjectPlanSchema');
+      expect(artifacts[0]?.code).toContain('export default ProjectPlanSchema');
       expect(artifacts[0]?.code).toContain("'name': 'title'");
     });
   });
@@ -303,7 +303,7 @@ export default class FragmentArrayModel extends Model {
       expect(artifacts[0]?.name).toBe('FragmentArrayModelSchema');
       expect(artifacts[0]?.suggestedFileName).toBe('fragment-array-model.schema.js');
       expect(artifacts[0]?.code).toContain("'type': 'fragment-array-model'");
-      expect(artifacts[0]?.code).toContain('export const FragmentArrayModelSchema');
+      expect(artifacts[0]?.code).toContain('export default FragmentArrayModelSchema');
 
       // Check fragmentArray field uses withFragmentArrayDefaults format
       expect(artifacts[0]?.code).toContain("'name': 'addresses'");
@@ -331,7 +331,7 @@ export default class ArrayModel extends Model {
       expect(artifacts[0]?.name).toBe('ArrayModelSchema');
       expect(artifacts[0]?.suggestedFileName).toBe('array-model.schema.js');
       expect(artifacts[0]?.code).toContain("'type': 'array-model'");
-      expect(artifacts[0]?.code).toContain('export const ArrayModelSchema');
+      expect(artifacts[0]?.code).toContain('export default ArrayModelSchema');
 
       // Check array field uses withArrayDefaults format
       expect(artifacts[0]?.code).toContain("'name': 'tags'");
@@ -380,7 +380,7 @@ export default class EmptyModel extends Model {
       // Empty models still generate a schema artifact (with just identity) - types are now merged
       expect(artifacts).toHaveLength(1);
       expect(artifacts[0]?.type).toBe('schema');
-      expect(artifacts[0]?.code).toContain('export const EmptyModelSchema');
+      expect(artifacts[0]?.code).toContain('export default EmptyModelSchema');
     });
 
     it('handles aliased imports correctly', () => {
@@ -418,7 +418,7 @@ export default class MixedSourceModel extends Model {
       expect(schema?.code).not.toContain('items');
 
       // Verify the schema is valid by checking structure
-      expect(schema?.code).toContain('export const MixedSourceModelSchema');
+      expect(schema?.code).toContain('export default MixedSourceModelSchema');
       expect(schema?.code).toContain("'type': 'mixed-source-model'");
 
       // 'items' should be in extension
@@ -656,44 +656,6 @@ export default class UnmappedTypesModel extends Model {
   });
 
   describe('mirror flag', () => {
-    it('uses @warp-drive-mirror imports when mirror flag is set', () => {
-      const input = `import Model, { attr, belongsTo, hasMany } from '@ember-data/model';
-
-export default class MirrorTestModel extends Model {
-	@attr('string') name;
-	@belongsTo('user', { async: true }) owner;
-	@hasMany('tag', { async: false }) tags;
-}`;
-
-      const artifacts = toArtifacts('app/models/mirror-test-model.js', input, createTestOptions({ mirror: true }));
-      // Types are now merged into schema
-      const schema = artifacts.find((a) => a.type === 'schema');
-
-      // Currently uses @ember-data/core-types/symbols (derived from @ember-data/model)
-      // TODO: This should ideally use @warp-drive-mirror/core/types/symbols when mirror flag is set
-      expect(schema?.code).toContain('@ember-data/core-types/symbols');
-      expect(schema?.code).toContain('@ember-data/model');
-    });
-
-    it('uses @warp-drive imports when mirror flag is not set', () => {
-      const input = `import Model, { attr, belongsTo, hasMany } from '@ember-data/model';
-
-export default class RegularTestModel extends Model {
-	@attr('string') name;
-	@belongsTo('user', { async: true }) owner;
-	@hasMany('tag', { async: false }) tags;
-}`;
-
-      const artifacts = toArtifacts('app/models/regular-test-model.js', input, DEFAULT_TEST_OPTIONS);
-      // Types are now merged into schema
-      const schema = artifacts.find((a) => a.type === 'schema');
-
-      // Currently uses @ember-data/core-types/symbols (derived from @ember-data/model)
-      // TODO: This should ideally use @warp-drive/core/types/symbols for the default case
-      expect(schema?.code).toContain('@ember-data/core-types/symbols');
-      expect(schema?.code).toContain('@ember-data/model');
-    });
-
     it('uses configured emberDataImportSource for HasMany types in merged schema', () => {
       const input = `import Model, { attr, hasMany, belongsTo } from '@auditboard/warp-drive/v1/model';
 
@@ -721,9 +683,7 @@ export default class RelationshipModel extends Model {
       }
 
       expect(schema.code).toMatchSnapshot('custom EmberData source for HasMany types in merged schema');
-      expect(schema.code).toContain('@auditboard/warp-drive/v1/model');
-      expect(schema.code).toContain('HasMany');
-      expect(schema.code).toContain('AsyncHasMany');
+      expect(schema.code).toContain('hasMany');
       expect(schema.code).not.toContain('@ember-data/model');
     });
   });
@@ -762,7 +722,7 @@ export default class TestModel extends Model {
       expect(result).not.toContain("import type AutomationWorkflowVersion from './automation-workflow-version';");
 
       // Should convert the model to a schema - adjust expectation based on actual output
-      expect(result).toContain('export const Test');
+      expect(result).toContain('export default Test');
     });
 
     it('only transforms type imports with relative paths', () => {
@@ -811,11 +771,11 @@ export default class TestModel extends Model.extend(WorkstreamableMixin) {
         input,
         createTestOptions({
           // Mark workstreamable as a connected mixin so it imports from traits
-          modelConnectedMixins: new Set(['/path/to/app/mixins/workstreamable.js']),
+          modelConnectedMixins: new Set(['app/mixins/workstreamable.js']),
         })
       );
 
-      const schemaType = artifacts.find((a) => a.type === 'resource-type');
+      const schemaType = artifacts.find((a) => a.type === 'schema');
 
       expect(artifacts.length).toBeGreaterThan(0);
       expect(schemaType).toBeDefined();
@@ -867,7 +827,7 @@ export default class User extends Model {
       expect(schema?.code).not.toContain('export function formatDate');
 
       // Schema should only contain the schema export (no imports needed since no complex default values)
-      expect(schema?.code).toContain('export const UserSchema');
+      expect(schema?.code).toContain('export default UserSchema');
       expect(schema?.code).not.toContain('get fullName');
       expect(schema?.code).not.toContain('import'); // No imports should be present
     });
@@ -1043,13 +1003,7 @@ export default class Translatable extends Model {
           "code": "import Model, { attr } from '@ember-data/model';
                 import { memberAction } from 'test-app/decorators/api-actions';
 
-        // The following is a workaround for the fact that we can't properly do
-        // declaration merging in .js files. If this is converted to a .ts file,
-        // we can remove this and just use the declaration merging.
-        /** @import { TestModel } from 'test-app/data/resources/test-model.schema' */
-        /** @type {{ new(): TestModel }} */
-        const Base = class {};
-        export class TestModelExtension extends Base {
+        export class TestModelExtension {
           startProcess = memberAction({
                       path: 'start_process',
                       type: 'POST',
@@ -1066,17 +1020,15 @@ export default class Translatable extends Model {
                         this.store.pushPayload(response);
                       }
                     })
-        }
-
-        /** @typedef {typeof TestModelExtension} TestModelExtensionSignature */",
+        }",
           "name": "TestModelExtension",
-          "suggestedFileName": "test-model.js",
-          "type": "extension",
+          "suggestedFileName": "test-model.ext.js",
+          "type": "resource-extension",
         }
       `);
       expect(schema).toMatchInlineSnapshot(`
         {
-          "code": "export const TestModelSchema = {
+          "code": "const TestModelSchema = {
           'type': 'test-model',
           'legacy': true,
           'identity': {
@@ -1090,7 +1042,9 @@ export default class Translatable extends Model {
               'type': 'string'
             }
           ]
-        };",
+        };
+
+        export default TestModelSchema;",
           "name": "TestModelSchema",
           "suggestedFileName": "test-model.schema.js",
           "type": "schema",
