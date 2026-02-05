@@ -4,17 +4,17 @@ import { parse } from '@ast-grep/napi';
 import type { TransformOptions } from '../config.js';
 import { debugLog, errorLog } from './logging.js';
 import { getFileExtension, getLanguageFromPath, indentCode, removeQuotes } from './path-utils.js';
-import type { TransformArtifact, PropertyInfo } from './schema-generation.js';
+import type { TransformArtifact } from './schema-generation.js';
 import {
   EXPORT_DEFAULT_LINE_END_REGEX,
   EXPORT_KEYWORD_REGEX,
   EXPORT_LINE_END_REGEX,
   extractDirectory,
-  PARENT_DIR_PREFIX_REGEX,
   removeFileExtension,
   removeSameDirPrefix,
-  SAME_DIR_PREFIX_REGEX,
 } from './string.js';
+
+import { resolve, join } from 'path';
 
 /**
  * Extension artifact context - determines where the extension file is placed
@@ -26,13 +26,6 @@ export type ExtensionContext = 'resource' | 'trait';
  */
 export function getExtensionArtifactType(context: ExtensionContext): string {
   return context === 'trait' ? 'trait-extension' : 'resource-extension';
-}
-
-/**
- * Get the extension file suffix (.ext.js or .ext.ts)
- */
-export function getExtensionFileSuffix(originalExtension: string): string {
-  return `.ext${originalExtension}`;
 }
 
 /**
@@ -320,18 +313,13 @@ export function createExtensionFromOriginalFile(
 
     debugLog(options, `Creating extension from ${filePath} with ${extensionProperties.length} properties`);
 
-    // Calculate expected target file path for the extension
-    // Extensions are now co-located with schemas in resourcesDir or traitsDir
-    const path = require('path');
-    const originalExt = filePath.endsWith('.ts') ? '.ts' : '.js';
-    const extFileName = `${baseName}${getExtensionFileSuffix(originalExt)}`;
+    const extFileName = `${baseName}.ext${getFileExtension(filePath)}`;
 
-    // Determine target directory based on extension context
     const targetDir =
       extensionContext === 'trait'
         ? options?.traitsDir || './app/data/traits'
         : options?.resourcesDir || './app/data/resources';
-    const targetFilePath = path.join(path.resolve(targetDir), extFileName);
+    const targetFilePath = join(resolve(targetDir), extFileName);
 
     // Update relative imports for the new extension location
     const updatedSource = updateRelativeImportsForExtensions(source, root, options, filePath, targetFilePath);
@@ -342,15 +330,12 @@ export function createExtensionFromOriginalFile(
 
     debugLog(options, `Extension generation for ${sourceType} using ${format} format`);
 
-    // Generate the extension class/object
-    const isTypeScript = filePath.endsWith('.ts');
-
     const extensionCode = generateExtensionCode(
       extensionName,
       extensionProperties,
       format,
       interfaceToExtend,
-      isTypeScript,
+      filePath.endsWith('.ts'),
       interfaceImportPath
     );
 

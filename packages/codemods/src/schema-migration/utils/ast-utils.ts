@@ -76,7 +76,6 @@ export {
   createTypeArtifact,
   createExtensionArtifact,
   createExtensionArtifactWithTypes,
-  getExtensionArtifactType,
   traitNameToInterfaceName,
   traitNameToImportPath,
   generateMergedSchemaCode,
@@ -86,7 +85,6 @@ export type {
   TransformArtifact,
   PropertyInfo,
   SchemaField,
-  ExtensionContext,
   MergedSchemaOptions,
   MergedTraitSchemaOptions,
 } from './schema-generation.js';

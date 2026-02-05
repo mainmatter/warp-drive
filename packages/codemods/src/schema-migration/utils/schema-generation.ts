@@ -4,6 +4,7 @@ import type { TransformOptions } from '../config.js';
 import { parseObjectLiteralFromNode } from './ast-helpers.js';
 import { removeQuotes, toPascalCase } from './path-utils.js';
 import type { ExtractedType } from './type-utils.js';
+import { ExtensionContext, getExtensionArtifactType } from './extension-generation.js';
 
 /**
  * Shared artifact interface for both transforms
@@ -372,18 +373,6 @@ export function createTypeArtifact(
     code,
     suggestedFileName: fileName,
   };
-}
-
-/**
- * Extension artifact context - determines where the extension file is placed
- */
-export type ExtensionContext = 'resource' | 'trait';
-
-/**
- * Get the artifact type for an extension based on its context
- */
-export function getExtensionArtifactType(context: ExtensionContext): string {
-  return context === 'trait' ? 'trait-extension' : 'resource-extension';
 }
 
 /**
