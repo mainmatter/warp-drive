@@ -1,8 +1,8 @@
 import { parse, type SgNode } from '@ast-grep/napi';
 import { dirname, resolve } from 'path';
-import { Logger } from '../utils/logger.js';
-import { Codemod } from '../codemod.js';
-import { FinalOptions } from '../config.js';
+
+import type { Codemod } from '../codemod.js';
+import type { FinalOptions } from '../config.js';
 import { extractBaseName, getLanguageFromPath } from '../utils/ast-utils.js';
 import {
   findCallExpressions,
@@ -25,6 +25,7 @@ import {
   NODE_KIND_MEMBER_EXPRESSION,
   NODE_KIND_PROPERTY_IDENTIFIER,
 } from '../utils/code-processing.js';
+import type { Logger } from '../utils/logger.js';
 import { removeQuoteChars } from '../utils/string.js';
 
 /** The 'extend' method name used in Ember's class extension pattern */

@@ -2,6 +2,7 @@ import { parse, type SgNode } from '@ast-grep/napi';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { dirname, join, resolve } from 'path';
 
+import type { Filename, InputFile } from '../codemod.js';
 import type { TransformOptions } from '../config.js';
 import type { SchemaField, TransformArtifact } from '../utils/ast-utils.js';
 import {
@@ -73,7 +74,6 @@ import {
   WILDCARD_REGEX,
 } from '../utils/string.js';
 import { extractTraitFields } from './mixin.js';
-import { Filename, InputFile } from '../codemod.js';
 
 /** Node types to try when searching for class field definitions */
 const FIELD_DEFINITION_NODE_TYPES = [

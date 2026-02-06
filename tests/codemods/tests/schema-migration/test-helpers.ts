@@ -1,7 +1,7 @@
-import type { TransformOptions } from '../../../../packages/codemods/src/schema-migration/utils/ast-utils.js';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-
 import { join, relative } from 'path';
+
+import type { TransformOptions } from '../../../../packages/codemods/src/schema-migration/utils/ast-utils.js';
 
 export function prepareFiles(baseDir: string, files: Record<string, string>) {
   for (const [key, content] of Object.entries(files)) {

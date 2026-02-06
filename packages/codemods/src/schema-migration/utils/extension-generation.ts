@@ -1,5 +1,6 @@
 import type { SgNode } from '@ast-grep/napi';
 import { parse } from '@ast-grep/napi';
+import { join,resolve } from 'path';
 
 import type { TransformOptions } from '../config.js';
 import { debugLog, errorLog } from './logging.js';
@@ -13,8 +14,6 @@ import {
   removeFileExtension,
   removeSameDirPrefix,
 } from './string.js';
-
-import { resolve, join } from 'path';
 
 /**
  * Extension artifact context - determines where the extension file is placed

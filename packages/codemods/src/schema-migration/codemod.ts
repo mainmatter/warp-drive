@@ -4,10 +4,10 @@ import { glob } from 'glob';
 import { basename, extname, join, resolve } from 'path';
 
 import type { FinalOptions } from './config.js';
-import { extractBaseName } from './utils/ast-utils.js';
-import { Logger } from './utils/logger.js';
 import { analyzeModelMixinUsage } from './processors/mixin-analyzer.js';
 import { willModelHaveExtension } from './processors/model.js';
+import { extractBaseName } from './utils/ast-utils.js';
+import type { Logger } from './utils/logger.js';
 import { FILE_EXTENSION_REGEX, TRAILING_SINGLE_WILDCARD_REGEX, TRAILING_WILDCARD_REGEX } from './utils/string.js';
 
 export type Filename = string;
@@ -70,9 +70,9 @@ async function findFiles(
   finalOptions: FinalOptions,
   logger: Logger
 ): Promise<{ output: InputFile[]; skipped: string[]; errors: Error[] }> {
-  let output: InputFile[] = [];
-  let errors: Error[] = [];
-  let skipped: string[] = [];
+  const output: InputFile[] = [];
+  const errors: Error[] = [];
+  const skipped: string[] = [];
 
   for (const source of sources) {
     try {
@@ -163,7 +163,7 @@ export class Codemod {
     }
 
     const filePattern = join(resolve(this.finalOptions.modelSourceDir), '**/*.{js,ts}');
-    let fileSources = [filePattern];
+    const fileSources = [filePattern];
 
     if (this.finalOptions.additionalModelSources) {
       for (const source of this.finalOptions.additionalModelSources) {
@@ -197,7 +197,7 @@ export class Codemod {
     }
 
     const filePattern = join(resolve(this.finalOptions.mixinSourceDir), '**/*.{js,ts}');
-    let fileSources = [filePattern];
+    const fileSources = [filePattern];
 
     if (this.finalOptions.additionalMixinSources) {
       for (const source of this.finalOptions.additionalMixinSources) {

@@ -1,14 +1,14 @@
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { basename, dirname, join, resolve } from 'path';
 
-import type { FinalOptions, MigrateOptions, TransformOptions } from '../config.js';
 import { Codemod } from '../codemod.js';
+import type { FinalOptions, MigrateOptions, TransformOptions } from '../config.js';
+import { toArtifacts as mixinToArtifacts } from '../processors/mixin.js';
 import {
   preAnalyzeConnectedMixinExtensions,
   processIntermediateModelsToTraits,
   toArtifacts as modelToArtifacts,
 } from '../processors/model.js';
-import { toArtifacts as mixinToArtifacts } from '../processors/mixin.js';
 import { debugLog } from '../utils/ast-utils.js';
 import { Logger } from '../utils/logger.js';
 
@@ -193,7 +193,7 @@ function buildOutputFileName(
  */
 function getOutputDirectory(artifactType: string, options: TransformOptions): string {
   const config = ARTIFACT_CONFIG[artifactType as ArtifactType] ?? DEFAULT_FALLBACK_CONFIG;
-  return (options[config.directoryKey] as string | undefined) ?? config.defaultDir;
+  return (options[config.directoryKey]) ?? config.defaultDir;
 }
 
 /**

@@ -3,9 +3,9 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import type { MigrateOptions } from '../../../../packages/codemods/src/schema-migration/codemod.js';
 import { runMigration } from '../../../../packages/codemods/src/schema-migration/tasks/migrate.js';
-import { type MigrateOptions } from '../../../../packages/codemods/src/schema-migration/codemod.js';
-import { prepareFiles, collectFileStructure, collectFilesSnapshot } from './test-helpers.ts';
+import { collectFilesSnapshot,collectFileStructure, prepareFiles } from './test-helpers.ts';
 
 describe('migrate-to-schema batch operation', () => {
   let tempDir: string;

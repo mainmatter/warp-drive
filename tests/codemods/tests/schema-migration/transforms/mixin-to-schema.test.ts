@@ -1,10 +1,11 @@
+import { mkdtempSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import type { FinalOptions } from '@ember-data/codemods/schema-migration/codemod.js';
+
 import { toArtifacts } from '../../../../../packages/codemods/src/schema-migration/processors/mixin.ts';
-import { mkdtempSync, rmSync } from 'fs';
-import { join } from 'path';
-import { tmpdir } from 'os';
-import { FinalOptions } from '@ember-data/codemods/schema-migration/codemod.js';
 
 describe('mixin-to-schema transform (artifacts)', () => {
   let tempDir: string;

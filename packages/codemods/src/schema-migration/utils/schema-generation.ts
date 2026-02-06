@@ -2,9 +2,10 @@ import type { SgNode } from '@ast-grep/napi';
 
 import type { TransformOptions } from '../config.js';
 import { parseObjectLiteralFromNode } from './ast-helpers.js';
+import type { ExtensionContext} from './extension-generation.js';
+import { getExtensionArtifactType } from './extension-generation.js';
 import { removeQuotes, toPascalCase } from './path-utils.js';
 import type { ExtractedType } from './type-utils.js';
-import { ExtensionContext, getExtensionArtifactType } from './extension-generation.js';
 
 /**
  * Shared artifact interface for both transforms
