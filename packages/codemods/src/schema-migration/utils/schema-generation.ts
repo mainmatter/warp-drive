@@ -121,6 +121,7 @@ export function buildLegacySchemaObject(
   mixinExtensions: string[],
   isFragment?: boolean
 ): Record<string, unknown> {
+  console.log(mixinExtensions, mixinTraits);
   const legacySchema: Record<string, unknown> = {
     type: isFragment ? `fragment:${type}` : type,
     legacy: true,
@@ -132,14 +133,9 @@ export function buildLegacySchemaObject(
     legacySchema.traits = mixinTraits;
   }
 
-  // For Fragment classes, always add objectExtensions ['ember-object', 'fragment']
-  // Otherwise, only add mixinExtensions if they exist
-  if (isFragment) {
-    const fragmentExtensions = ['ember-object', 'fragment'];
-    legacySchema.objectExtensions =
-      mixinExtensions.length > 0 ? [...fragmentExtensions, ...mixinExtensions] : fragmentExtensions;
-  } else if (mixinExtensions.length > 0) {
-    legacySchema.objectExtensions = mixinExtensions;
+  if (mixinExtensions.length > 0 || isFragment) {
+    const fragmentExtensions = isFragment ? ['ember-object', 'fragment'] : [];
+    legacySchema.objectExtensions = [...fragmentExtensions, ...mixinExtensions];
   }
 
   return legacySchema;

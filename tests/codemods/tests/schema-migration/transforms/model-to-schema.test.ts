@@ -178,7 +178,7 @@ export default class FragmentModel extends Model {
       expect(artifacts[0]?.name).toBe('FragmentModelSchema');
       expect(artifacts[0]?.suggestedFileName).toBe('fragment-model.schema.js');
       expect(artifacts[0]?.code).toContain("'type': 'fragment-model'");
-      expect(artifacts[0]?.code).toContain('export const FragmentModelSchema');
+      expect(artifacts[0]?.code).toContain('export default FragmentModelSchema');
 
       // Check fragment field uses withFragmentDefaults format
       expect(artifacts[0]?.code).toContain("'name': 'address'");
@@ -204,7 +204,7 @@ export default class Address extends Fragment {
       expect(artifacts).toHaveLength(1);
       expect(artifacts[0]?.name).toBe('AddressSchema');
       expect(artifacts[0]?.suggestedFileName).toBe('address.schema.js');
-      expect(artifacts[0]?.code).toContain('export const AddressSchema');
+      expect(artifacts[0]?.code).toContain('export default AddressSchema');
 
       // Fragment classes should have different schema structure
       expect(artifacts[0]?.code).toContain("'type': 'fragment:address'"); // type is fragment:{name}
@@ -722,7 +722,7 @@ export default class TestModel extends Model {
       expect(result).not.toContain("import type AutomationWorkflowVersion from './automation-workflow-version';");
 
       // Should convert the model to a schema - adjust expectation based on actual output
-      expect(result).toContain('export default Test');
+      expect(result).toContain('export const TestSchema');
     });
 
     it('only transforms type imports with relative paths', () => {
@@ -784,15 +784,29 @@ export default class TestModel extends Model.extend(WorkstreamableMixin) {
       }
 
       expect(schemaType.code).toMatchInlineSnapshot(`
-        "import type { Type } from '@ember-data/core-types/symbols';
-        import type { WorkstreamableTrait as Workstreamable } from '../traits/workstreamable.schema';
-        import type { WorkstreamableTrait } from '../traits/workstreamable.schema';
+        "const TestModelSchema = {
+          'type': 'test-model',
+          'legacy': true,
+          'identity': {
+            'kind': '@id',
+            'name': 'id'
+          },
+          'fields': [
+            {
+              'kind': 'belongsTo',
+              'name': 'workstreamable',
+              'type': 'workstreamable',
+              'options': {
+                'async': false
+              }
+            }
+          ],
+          'traits': [
+            'workstreamable'
+          ]
+        };
 
-        export interface TestModel extends WorkstreamableTrait {
-        	readonly [Type]: 'test-model';
-        	readonly workstreamable: Workstreamable | null;
-        }
-        "
+        export default TestModelSchema;"
       `);
     });
   });

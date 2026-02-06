@@ -300,12 +300,6 @@ function analyzeModelFile(filePath: string, source: string, options: TransformOp
     }
     debugLog(options, `DEBUG: Is Fragment class: ${isFragment}`);
 
-    // If no EmberData decorator imports found, check if it extends from intermediate models
-    if (!modelImportLocal && !isFragment) {
-      debugLog(options, 'DEBUG: No EmberData decorator imports found, checking for intermediate model extension');
-      // We'll continue processing even without decorator imports if it's a valid model class
-    }
-
     // Get the valid EmberData decorator imports for this file
     const emberDataImports = getEmberDataImports(root, expectedSources, options);
 
@@ -317,6 +311,7 @@ function analyzeModelFile(filePath: string, source: string, options: TransformOp
       options
     );
 
+    console.log(mixinExtensions);
     // For simple model files that just extend from a base model without decorators,
     // we should still generate a basic schema even if there are no fields
     if (schemaFields.length === 0 && extensionProperties.length === 0 && mixinTraits.length === 0) {
@@ -643,6 +638,7 @@ function generateRegularModelArtifacts(
 ): TransformArtifact[] {
   const { schemaFields, extensionProperties, mixinTraits, mixinExtensions, modelName, baseName, isFragment } = analysis;
 
+  console.log(analysis);
   const artifacts: TransformArtifact[] = [];
 
   // Determine the file extension based on the original model file
@@ -827,10 +823,6 @@ function generateIntermediateModelTraitArtifacts(
   }
 
   const { schemaFields, extensionProperties, mixinTraits, defaultExportNode } = analysis;
-  debugLog(
-    options,
-    `DEBUG: defaultExportNode in generateIntermediateModelTraitArtifacts: ${defaultExportNode ? 'defined' : 'undefined'}`
-  );
 
   // Determine the file extension based on the original model file
   const originalExtension = getFileExtension(filePath);
@@ -1873,6 +1865,7 @@ function generateLegacyResourceSchema(
   extensionProperties: Array<{ name: string; originalKey: string; value: string }>,
   source?: string
 ): string {
+  console.log('generateLegacyResourceSchema');
   const schemaName = `${modelName}Schema`;
   const extensionName = `${modelName}Extension`;
 

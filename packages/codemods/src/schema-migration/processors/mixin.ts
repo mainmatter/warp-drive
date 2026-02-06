@@ -284,6 +284,8 @@ export function toArtifacts(filePath: string, source: string, options: Transform
       options
     );
 
+    console.log(extensionProperties);
+
     if (mixinName.toLowerCase().includes('basemodel')) {
       debugLog(
         options,

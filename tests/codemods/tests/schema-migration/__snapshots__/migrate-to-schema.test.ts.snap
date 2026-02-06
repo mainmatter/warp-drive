@@ -257,7 +257,7 @@ const TestModelSchema = {
       }
     }
   ],
-  'objectExtensions': [
+  'traits': [
     'workstreamable'
   ]
 } as const;
@@ -714,6 +714,202 @@ export default TsMixinTrait;
 
 export interface TsMixinTrait {
   isEnabled: boolean | null;
+}",
+}
+`;
+
+exports[`migrate-to-schema batch operation > mixin with attributes only is ONLY referenced as a trait in a schema > contains_only_a_trait 1`] = `
+{
+  "resources/": "__dir__",
+  "resources/test-model.schema.ts": "
+import type { Type } from '@ember-data/core-types/symbols';
+import type { User } from 'test-app/data/resources/user.schema';
+import type { WorkstreamableTrait as Workstreamable } from 'test-app/data/traits/workstreamable.schema';
+import type { WorkstreamableTrait } from 'test-app/data/traits/workstreamable.schema';
+const TestModelSchema = {
+  'type': 'test-model',
+  'legacy': true,
+  'identity': {
+    'kind': '@id',
+    'name': 'id'
+  },
+  'fields': [
+    {
+      'kind': 'belongsTo',
+      'name': 'user',
+      'type': 'user',
+      'options': {
+        'async': false
+      }
+    },
+    {
+      'kind': 'belongsTo',
+      'name': 'workstreamable',
+      'type': 'workstreamable',
+      'options': {
+        'async': false
+      }
+    }
+  ],
+  'traits': [
+    'workstreamable'
+  ]
+} as const;
+
+export default TestModelSchema;
+
+export interface TestModel extends WorkstreamableTrait {
+  readonly [Type]: 'test-model';
+  readonly user: User | null;
+  readonly workstreamable: Workstreamable | null;
+}",
+  "resources/user.schema.ts": "
+import type { Type } from '@ember-data/core-types/symbols';
+const UserSchema = {
+  'type': 'user',
+  'legacy': true,
+  'identity': {
+    'kind': '@id',
+    'name': 'id'
+  },
+  'fields': [
+    {
+      'kind': 'attribute',
+      'name': 'name',
+      'type': 'string'
+    }
+  ]
+} as const;
+
+export default UserSchema;
+
+export interface User {
+  readonly [Type]: 'user';
+  readonly name: string | null;
+}",
+  "traits/": "__dir__",
+  "traits/workstreamable.schema.ts": "
+const WorkstreamableTrait = {
+  'name': 'workstreamable',
+  'mode': 'legacy',
+  'fields': [
+    {
+      'name': 'workstreamType',
+      'kind': 'attribute',
+      'type': 'string'
+    }
+  ]
+} as const;
+
+export default WorkstreamableTrait;
+
+export interface WorkstreamableTrait {
+  workstreamType: string | null;
+}",
+}
+`;
+
+exports[`migrate-to-schema batch operation > mixin with both attributes and methods only is referenced as a trait and an objectExtension > contains_both_extension_and_a_trait 1`] = `
+{
+  "resources/": "__dir__",
+  "resources/test-model.schema.ts": "
+import type { Type } from '@ember-data/core-types/symbols';
+import type { User } from 'test-app/data/resources/user.schema';
+import type { WorkstreamableTrait as Workstreamable } from 'test-app/data/traits/workstreamable.schema';
+import type { WorkstreamableTrait } from 'test-app/data/traits/workstreamable.schema';
+const TestModelSchema = {
+  'type': 'test-model',
+  'legacy': true,
+  'identity': {
+    'kind': '@id',
+    'name': 'id'
+  },
+  'fields': [
+    {
+      'kind': 'belongsTo',
+      'name': 'user',
+      'type': 'user',
+      'options': {
+        'async': false
+      }
+    },
+    {
+      'kind': 'belongsTo',
+      'name': 'workstreamable',
+      'type': 'workstreamable',
+      'options': {
+        'async': false
+      }
+    }
+  ],
+  'traits': [
+    'workstreamable'
+  ],
+  'objectExtensions': [
+    'workstreamable'
+  ]
+} as const;
+
+export default TestModelSchema;
+
+export interface TestModel extends WorkstreamableTrait {
+  readonly [Type]: 'test-model';
+  readonly user: User | null;
+  readonly workstreamable: Workstreamable | null;
+}",
+  "resources/user.schema.ts": "
+import type { Type } from '@ember-data/core-types/symbols';
+const UserSchema = {
+  'type': 'user',
+  'legacy': true,
+  'identity': {
+    'kind': '@id',
+    'name': 'id'
+  },
+  'fields': [
+    {
+      'kind': 'attribute',
+      'name': 'name',
+      'type': 'string'
+    }
+  ]
+} as const;
+
+export default UserSchema;
+
+export interface User {
+  readonly [Type]: 'user';
+  readonly name: string | null;
+}",
+  "traits/": "__dir__",
+  "traits/workstreamable.ext.ts": "
+import Mixin from '@ember/object/mixin';
+import { attr } from '@ember-data/model';
+
+import type { WorkstreamableTrait } from 'test-app/data/traits/workstreamable.schema';
+
+export interface workstreamableExtension extends WorkstreamableTrait {}
+
+export const workstreamableExtension = {
+  imAnObjectExtensionNow() {}
+};",
+  "traits/workstreamable.schema.ts": "
+const WorkstreamableTrait = {
+  'name': 'workstreamable',
+  'mode': 'legacy',
+  'fields': [
+    {
+      'name': 'workstreamType',
+      'kind': 'attribute',
+      'type': 'string'
+    }
+  ]
+} as const;
+
+export default WorkstreamableTrait;
+
+export interface WorkstreamableTrait {
+  workstreamType: string | null;
 }",
 }
 `;

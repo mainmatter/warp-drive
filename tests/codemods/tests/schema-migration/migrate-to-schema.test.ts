@@ -565,6 +565,81 @@ export default Mixin.create({
     expect(collectFilesSnapshot(dataDir)).toMatchSnapshot('traits vs resources files');
   });
 
+  it('mixin with attributes only is ONLY referenced as a trait in a schema', async () => {
+    prepareFiles(tempDir, {
+      'app/models/test-model.ts': `
+import Model, { belongsTo } from '@ember-data/model';
+import WorkstreamableMixin from '../mixins/workstreamable';
+
+export default class TestModel extends Model.extend(WorkstreamableMixin) {
+  // This should be imported from resources (regular model)
+  @belongsTo('user', { async: false }) user;
+
+  // This should be imported from traits (exists as trait)
+  @belongsTo('workstreamable', { async: false }) workstreamable;
+}
+`,
+      'app/models/user.ts': `
+import Model, { attr } from '@ember-data/model';
+
+export default class User extends Model {
+  @attr('string') name;
+}
+`,
+      'app/mixins/workstreamable.ts': `
+import Mixin from '@ember/object/mixin';
+import { attr } from '@ember-data/model';
+
+export default Mixin.create({
+  workstreamType: attr('string')
+});
+`,
+    });
+
+    await runMigration(options);
+
+    const dataDir = join(tempDir, 'app/data');
+    expect(collectFilesSnapshot(dataDir)).toMatchSnapshot('contains_only_a_trait')
+  });
+
+  it('mixin with both attributes and methods only is referenced as a trait and an objectExtension', async () => {
+    prepareFiles(tempDir, {
+      'app/models/test-model.ts': `
+import Model, { belongsTo } from '@ember-data/model';
+import WorkstreamableMixin from '../mixins/workstreamable';
+
+export default class TestModel extends Model.extend(WorkstreamableMixin) {
+  // This should be imported from resources (regular model)
+  @belongsTo('user', { async: false }) user;
+
+  // This should be imported from traits (exists as trait)
+  @belongsTo('workstreamable', { async: false }) workstreamable;
+}
+`,
+      'app/models/user.ts': `
+import Model, { attr } from '@ember-data/model';
+
+export default class User extends Model {
+  @attr('string') name;
+}
+`,
+      'app/mixins/workstreamable.ts': `
+import Mixin from '@ember/object/mixin';
+import { attr } from '@ember-data/model';
+
+export default Mixin.create({
+  workstreamType: attr('string'),
+  imAnObjectExtensionNow() {},
+});
+`,
+    });
+
+    await runMigration(options);
+
+    const dataDir = join(tempDir, 'app/data');
+    expect(collectFilesSnapshot(dataDir)).toMatchSnapshot('contains_both_extension_and_a_trait')
+  });
+
   it('ensures type files are always .ts regardless of source file extension', async () => {
     prepareFiles(tempDir, {
       'app/models/js-model.js': `
