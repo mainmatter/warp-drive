@@ -3,7 +3,11 @@ import { basename, dirname, join, resolve } from 'path';
 
 import type { FinalOptions, MigrateOptions, TransformOptions } from '../config.js';
 import { Codemod } from '../codemod.js';
-import { processIntermediateModelsToTraits, toArtifacts as modelToArtifacts } from '../processors/model.js';
+import {
+  preAnalyzeConnectedMixinExtensions,
+  processIntermediateModelsToTraits,
+  toArtifacts as modelToArtifacts,
+} from '../processors/model.js';
 import { toArtifacts as mixinToArtifacts } from '../processors/mixin.js';
 import { debugLog } from '../utils/ast-utils.js';
 import { Logger } from '../utils/logger.js';
@@ -395,6 +399,7 @@ export async function runMigration(options: MigrateOptions): Promise<void> {
   finalOptions.modelsWithExtensions = codemod.modelsWithExtensions;
   finalOptions.modelConnectedMixins = codemod.mixinsImportedByModels;
   finalOptions.modelsWithExtensions = codemod.modelsWithExtensions;
+  preAnalyzeConnectedMixinExtensions(codemod.input.mixins, finalOptions);
 
   // Process intermediate models to generate trait artifacts first
   // This must be done before processing regular models that extend these intermediate models

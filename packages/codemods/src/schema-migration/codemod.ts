@@ -10,8 +10,8 @@ import { analyzeModelMixinUsage } from './processors/mixin-analyzer.js';
 import { willModelHaveExtension } from './processors/model.js';
 import { FILE_EXTENSION_REGEX, TRAILING_SINGLE_WILDCARD_REGEX, TRAILING_WILDCARD_REGEX } from './utils/string.js';
 
-type Filename = string;
-type InputFile = { path: string; code: string };
+export type Filename = string;
+export type InputFile = { path: string; code: string };
 
 /**
  * Check if a file path matches any intermediate model path
@@ -123,7 +123,9 @@ export class Codemod {
   }
 
   findMixinsUsedByModels() {
-    this.mixinsImportedByModels = analyzeModelMixinUsage(this, this.finalOptions);
+    const result = analyzeModelMixinUsage(this, this.finalOptions);
+    this.mixinsImportedByModels = result.connectedMixins;
+    this.finalOptions.modelToMixinsMap = result.modelToMixinsMap;
   }
 
   findModelExtensions() {

@@ -660,6 +660,9 @@ const TsModelWithMixinSchema = {
   ],
   'traits': [
     'ts'
+  ],
+  'objectExtensions': [
+    'tsMixinExtension'
   ]
 } as const;
 
@@ -846,7 +849,7 @@ const TestModelSchema = {
     'workstreamable'
   ],
   'objectExtensions': [
-    'workstreamable'
+    'workstreamableExtension'
   ]
 } as const;
 

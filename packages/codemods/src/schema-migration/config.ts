@@ -1,3 +1,5 @@
+import { connectedMixins, modelToMixinsMap } from "./processors/mixin-analyzer";
+
 export interface TransformOptions {
   verbose?: boolean;
   debug?: boolean;
@@ -7,7 +9,8 @@ export interface TransformOptions {
   /** Test mode - treats all mixins as connected to models (for testing) */
   testMode?: boolean;
   /** Set of absolute file paths for mixins that are connected to models */
-  modelConnectedMixins?: Set<string>;
+  modelConnectedMixins?: connectedMixins;
+  modelToMixinsMap?: modelToMixinsMap;
   /** List of all discovered mixin file paths (for polymorphic detection) */
   allMixinFiles?: string[];
   /** List of all discovered model file paths (for resource vs trait detection) */

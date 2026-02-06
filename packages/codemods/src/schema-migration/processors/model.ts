@@ -13,6 +13,7 @@ import {
   detectQuoteStyle,
   errorLog,
   extractBaseName,
+  extractCamelCaseName,
   extractPascalCaseName,
   extractTypeFromDeclaration,
   extractTypeFromDecorator,
@@ -71,6 +72,8 @@ import {
   TRAILING_MODEL_SUFFIX_REGEX,
   WILDCARD_REGEX,
 } from '../utils/string.js';
+import { extractTraitFields } from './mixin.js';
+import { Filename, InputFile } from '../codemod.js';
 
 /** Node types to try when searching for class field definitions */
 const FIELD_DEFINITION_NODE_TYPES = [
@@ -91,6 +94,9 @@ const FRAGMENT_DECORATOR_SOURCE = 'ember-data-model-fragments/attributes';
 
 /** Fragment base class import source */
 const FRAGMENT_BASE_SOURCE = 'ember-data-model-fragments/fragment';
+
+/** Cache for mixin extension analysis results to avoid re-parsing mixin files */
+const mixinExtensionCache = new Map<string, { hasExtension: boolean; extensionName: string | null }>();
 
 /**
  * Get the base EmberData Model properties and methods that should be available on all model types.
@@ -1480,6 +1486,10 @@ function extractModelFields(
     const mixinImports = getMixinImports(root, options);
     mixinTraits.push(...extractMixinTraits(heritageClause, root, mixinImports, options));
 
+    // Extract mixin extensions (mixins with non-trait properties like methods, computed properties)
+    const mixinExts = extractMixinExtensions(heritageClause, root, mixinImports, filePath, options);
+    mixinExtensions.push(...mixinExts);
+
     // Extract intermediate model traits
     if (options?.intermediateModelPaths && options.intermediateModelPaths.length > 0) {
       const intermediateTraits = extractIntermediateModelTraits(
@@ -1854,6 +1864,111 @@ function extractMixinTraits(
 }
 
 /**
+ * Extract mixin extensions for a model file
+ * Uses the pre-computed modelToMixinsMap to look up which mixins this model uses,
+ * then checks the mixinExtensionCache to get extension names for mixins with extension properties
+ */
+function extractMixinExtensions(
+  _heritageClause: SgNode,
+  _root: SgNode,
+  _mixinImports: Map<string, string>,
+  filePath: string,
+  options?: TransformOptions
+): string[] {
+  const mixinExtensions: string[] = [];
+
+  const modelMixins = options?.modelToMixinsMap?.get(filePath);
+  if (!modelMixins || modelMixins.size === 0) {
+    return mixinExtensions;
+  }
+
+  for (const mixinFilePath of modelMixins) {
+    // Check the mixinExtensionCache to see if this mixin has an extension
+    const cacheEntry = mixinExtensionCache.get(mixinFilePath);
+    if (cacheEntry?.hasExtension && cacheEntry.extensionName) {
+      mixinExtensions.push(cacheEntry.extensionName);
+    } else {
+    }
+  }
+
+  return mixinExtensions;
+}
+
+/**
+ * Analyze a mixin file to determine if it has extension properties
+ * Returns the extension name if the mixin has non-trait properties (methods, computed, etc.)
+ */
+function analyzeMixinForExtension(
+  filePath: string,
+  source: string,
+  options: TransformOptions
+): { hasExtension: boolean; extensionName: string | null } {
+  try {
+    const lang = getLanguageFromPath(filePath);
+    const ast = parse(lang, source);
+    const root = ast.root();
+
+    const mixinSources = ['@ember/object/mixin'];
+    const mixinLocalName = findEmberImportLocalName(root, mixinSources, options, filePath, process.cwd());
+    if (!mixinLocalName) {
+      return { hasExtension: false, extensionName: null };
+    }
+
+    // Get EmberData imports for detecting trait fields
+    const emberDataSources = [options?.emberDataImportSource || DEFAULT_EMBER_DATA_SOURCE];
+    const emberDataImports = getEmberDataImports(root, emberDataSources, options);
+
+    // Extract mixin name from file path (camelCase)
+    const mixinName = extractCamelCaseName(filePath);
+
+    // Extract trait fields and extension properties
+    const { extensionProperties } = extractTraitFields(
+      root,
+      emberDataImports,
+      mixinLocalName,
+      mixinName,
+      filePath,
+      options
+    );
+
+    const hasExtension = extensionProperties.length > 0;
+    const extensionName = hasExtension ? `${mixinName}Extension` : null;
+
+    return { hasExtension, extensionName };
+  } catch (error) {
+    debugLog(options, `Error analyzing mixin ${filePath} for extension: ${String(error)}`);
+    return { hasExtension: false, extensionName: null };
+  }
+}
+
+/**
+ * Pre-analyze all mixins in modelConnectedMixins to populate the extension cache
+ */
+export function preAnalyzeConnectedMixinExtensions(
+  mixinFiles: Map<Filename, InputFile>,
+  options: TransformOptions
+): void {
+  if (!options.modelConnectedMixins || options.modelConnectedMixins.size === 0) {
+    debugLog(options, 'No modelConnectedMixins to pre-analyze');
+    return;
+  }
+
+  for (const mixinFilePath of options.modelConnectedMixins) {
+    const mixinSource = mixinFiles.get(mixinFilePath);
+    if (mixinExtensionCache.has(mixinFilePath) || !mixinSource) {
+      continue;
+    }
+
+    try {
+      const analysis = analyzeMixinForExtension(mixinFilePath, mixinSource.code, options);
+      mixinExtensionCache.set(mixinFilePath, analysis);
+    } catch (error) {
+      mixinExtensionCache.set(mixinFilePath, { hasExtension: false, extensionName: null });
+    }
+  }
+}
+
+/**
  * Generate LegacyResourceSchema object
  */
 function generateLegacyResourceSchema(
@@ -1865,7 +1980,6 @@ function generateLegacyResourceSchema(
   extensionProperties: Array<{ name: string; originalKey: string; value: string }>,
   source?: string
 ): string {
-  console.log('generateLegacyResourceSchema');
   const schemaName = `${modelName}Schema`;
   const extensionName = `${modelName}Extension`;
 

@@ -751,7 +751,7 @@ function processExtendedTraitsFromCalls(
  * Extract fields that can become trait fields (attr, hasMany, belongsTo)
  * and extension properties with TypeScript types
  */
-function extractTraitFields(
+export function extractTraitFields(
   root: SgNode,
   emberDataImports: Map<string, string>,
   mixinLocalName: string,
