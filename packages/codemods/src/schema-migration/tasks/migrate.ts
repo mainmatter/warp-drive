@@ -3,7 +3,11 @@ import { basename, dirname, join, resolve } from 'path';
 
 import type { FinalOptions, MigrateOptions, TransformOptions } from '../config.js';
 import { Codemod } from '../codemod.js';
-import { processIntermediateModelsToTraits, toArtifacts as modelToArtifacts } from '../processors/model.js';
+import {
+  preAnalyzeConnectedMixinExtensions,
+  processIntermediateModelsToTraits,
+  toArtifacts as modelToArtifacts,
+} from '../processors/model.js';
 import { toArtifacts as mixinToArtifacts } from '../processors/mixin.js';
 import { debugLog } from '../utils/ast-utils.js';
 import { Logger } from '../utils/logger.js';
@@ -30,16 +34,9 @@ interface ProcessingResult {
   errors: number;
 }
 
-type ArtifactType =
-  | 'schema'
-  | 'resource-type'
-  | 'trait'
-  | 'trait-type'
-  | 'extension'
-  | 'extension-type'
-  | 'resource-type-stub';
+type ArtifactType = 'schema' | 'trait' | 'resource-extension' | 'trait-extension';
 
-type DirectoryKey = 'resourcesDir' | 'traitsDir' | 'extensionsDir' | 'outputDir';
+type DirectoryKey = 'resourcesDir' | 'traitsDir' | 'outputDir';
 
 interface ArtifactConfig {
   directoryKey: DirectoryKey;
@@ -61,12 +58,6 @@ const ARTIFACT_CONFIG: Record<ArtifactType, ArtifactConfig> = {
     suffix: '.schema',
     preserveExtension: true,
   },
-  'resource-type': {
-    directoryKey: 'resourcesDir',
-    defaultDir: './app/data/resources',
-    suffix: '.schema.types',
-    preserveExtension: false,
-  },
   trait: {
     directoryKey: 'traitsDir',
     defaultDir: './app/data/traits',
@@ -74,29 +65,18 @@ const ARTIFACT_CONFIG: Record<ArtifactType, ArtifactConfig> = {
     suffix: '.schema',
     preserveExtension: true,
   },
-  'trait-type': {
+  'resource-extension': {
+    directoryKey: 'resourcesDir',
+    defaultDir: './app/data/resources',
+    suffix: '.ext',
+    preserveExtension: true,
+  },
+  'trait-extension': {
     directoryKey: 'traitsDir',
     defaultDir: './app/data/traits',
     useRelativePath: true,
-    suffix: '.schema.types',
-    preserveExtension: false,
-  },
-  extension: {
-    directoryKey: 'extensionsDir',
-    defaultDir: './app/data/extensions',
-    useSuggestedFileName: true,
-  },
-  'extension-type': {
-    directoryKey: 'extensionsDir',
-    defaultDir: './app/data/extensions',
-    useSuggestedFileName: true,
-    suffix: '.schema.types',
-    preserveExtension: false,
-  },
-  'resource-type-stub': {
-    directoryKey: 'resourcesDir',
-    defaultDir: './app/data/resources',
-    useSuggestedFileName: true,
+    suffix: '.ext',
+    preserveExtension: true,
   },
 };
 
@@ -290,10 +270,7 @@ function writeIntermediateArtifacts(artifacts: Artifact[], finalOptions: FinalOp
       throw new Error("Couldn't get an artifact `suggestedFileName`");
     }
 
-    let fileName = artifact.suggestedFileName;
-    if (artifact.type === 'trait-type') {
-      fileName = artifact.suggestedFileName.replace(/\.js$/, '.schema.types.ts');
-    }
+    const fileName = artifact.suggestedFileName;
 
     outputPath = join(resolve(outputDir), fileName);
     writeArtifact(artifact, outputPath, {
@@ -422,6 +399,7 @@ export async function runMigration(options: MigrateOptions): Promise<void> {
   finalOptions.modelsWithExtensions = codemod.modelsWithExtensions;
   finalOptions.modelConnectedMixins = codemod.mixinsImportedByModels;
   finalOptions.modelsWithExtensions = codemod.modelsWithExtensions;
+  preAnalyzeConnectedMixinExtensions(codemod.input.mixins, finalOptions);
 
   // Process intermediate models to generate trait artifacts first
   // This must be done before processing regular models that extend these intermediate models

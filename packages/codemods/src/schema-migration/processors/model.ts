@@ -8,12 +8,12 @@ import {
   buildLegacySchemaObject,
   convertToSchemaField,
   createExtensionFromOriginalFile,
-  createTypeArtifact,
   debugLog,
   DEFAULT_EMBER_DATA_SOURCE,
   detectQuoteStyle,
   errorLog,
   extractBaseName,
+  extractCamelCaseName,
   extractPascalCaseName,
   extractTypeFromDeclaration,
   extractTypeFromDecorator,
@@ -23,16 +23,14 @@ import {
   findEmberImportLocalName,
   generateCommonWarpDriveImports,
   generateExportStatement,
+  generateMergedSchemaCode,
+  generateMergedTraitSchemaCode,
   generateTraitImport,
-  generateTraitSchemaCode,
   getEmberDataImports,
   getExportedIdentifier,
   getFileExtension,
   getLanguageFromPath,
   getMixinImports,
-  getTypeScriptTypeForAttribute,
-  getTypeScriptTypeForBelongsTo,
-  getTypeScriptTypeForHasMany,
   isModelFile,
   mixinNameToTraitName,
   parseDecoratorArgumentsWithNodes,
@@ -69,11 +67,13 @@ import {
   RELATIVE_TYPE_IMPORT_REGEX,
   removeFileExtension,
   removeQuoteChars,
-  SCHEMA_TYPES_SUFFIX_REGEX,
+  SCHEMA_SUFFIX_REGEX,
   toKebabCase,
   TRAILING_MODEL_SUFFIX_REGEX,
   WILDCARD_REGEX,
 } from '../utils/string.js';
+import { extractTraitFields } from './mixin.js';
+import { Filename, InputFile } from '../codemod.js';
 
 /** Node types to try when searching for class field definitions */
 const FIELD_DEFINITION_NODE_TYPES = [
@@ -94,6 +94,9 @@ const FRAGMENT_DECORATOR_SOURCE = 'ember-data-model-fragments/attributes';
 
 /** Fragment base class import source */
 const FRAGMENT_BASE_SOURCE = 'ember-data-model-fragments/fragment';
+
+/** Cache for mixin extension analysis results to avoid re-parsing mixin files */
+const mixinExtensionCache = new Map<string, { hasExtension: boolean; extensionName: string | null }>();
 
 /**
  * Get the base EmberData Model properties and methods that should be available on all model types.
@@ -303,12 +306,6 @@ function analyzeModelFile(filePath: string, source: string, options: TransformOp
     }
     debugLog(options, `DEBUG: Is Fragment class: ${isFragment}`);
 
-    // If no EmberData decorator imports found, check if it extends from intermediate models
-    if (!modelImportLocal && !isFragment) {
-      debugLog(options, 'DEBUG: No EmberData decorator imports found, checking for intermediate model extension');
-      // We'll continue processing even without decorator imports if it's a valid model class
-    }
-
     // Get the valid EmberData decorator imports for this file
     const emberDataImports = getEmberDataImports(root, expectedSources, options);
 
@@ -476,8 +473,6 @@ function replacePattern(importPath: string, pattern: string, dir: string): strin
 
 /**
  * Check if a model file will produce an extension artifact
- * This is used for pre-analysis to determine which models have extensions
- * so that imports can reference extension types instead of schema types
  */
 export function willModelHaveExtension(filePath: string, source: string, options: TransformOptions): boolean {
   const analysis = analyzeModelFile(filePath, source, options);
@@ -578,15 +573,25 @@ export function processIntermediateModelsToTraits(
         options
       );
 
-      // If we have a traitsDir, write the artifacts immediately so subsequent models can reference them
-      if ((options.traitsDir || options.extensionsDir) && !options.dryRun) {
+      // If we have a traitsDir or resourcesDir, write the artifacts immediately so subsequent models can reference them
+      // Extensions are now co-located with their schemas
+      if ((options.traitsDir || options.resourcesDir) && !options.dryRun) {
         for (const artifact of traitArtifacts) {
           let baseDir: string | undefined;
 
-          if ((artifact.type === 'trait' || artifact.type === 'trait-type') && options.traitsDir) {
+          if (
+            (artifact.type === 'trait' || artifact.type === 'trait-type' || artifact.type === 'trait-extension') &&
+            options.traitsDir
+          ) {
             baseDir = options.traitsDir;
-          } else if ((artifact.type === 'extension' || artifact.type === 'extension-type') && options.extensionsDir) {
-            baseDir = options.extensionsDir;
+          } else if (
+            (artifact.type === 'resource-extension' ||
+              artifact.type === 'extension' ||
+              artifact.type === 'extension-type') &&
+            options.resourcesDir
+          ) {
+            // Extensions are now co-located with resources
+            baseDir = options.resourcesDir;
           }
 
           if (baseDir) {
@@ -636,49 +641,12 @@ function generateRegularModelArtifacts(
   analysis: ModelAnalysisResult,
   options: TransformOptions
 ): TransformArtifact[] {
-  const {
-    schemaFields,
-    extensionProperties,
-    mixinTraits,
-    mixinExtensions,
-    modelName,
-    baseName,
-    defaultExportNode,
-    isFragment,
-  } = analysis;
-
-  // Parse the source to get the root node for class detection
-  const language = getLanguageFromPath(filePath);
-  const ast = parse(language, source);
-  const root = ast.root();
-
+  const { schemaFields, extensionProperties, mixinTraits, mixinExtensions, modelName, baseName, isFragment } = analysis;
   const artifacts: TransformArtifact[] = [];
 
-  // Always create a schema artifact (even if it only has traits/extensions from mixins)
-  const schemaName = `${modelName}Schema`;
-  const code = generateSchemaCode(
-    schemaName,
-    baseName,
-    schemaFields,
-    mixinTraits,
-    mixinExtensions,
-    source,
-    defaultExportNode ?? null,
-    root,
-    isFragment
-  );
   // Determine the file extension based on the original model file
   const originalExtension = getFileExtension(filePath);
-
-  artifacts.push({
-    type: 'schema',
-    name: schemaName,
-    code,
-    suggestedFileName: `${baseName}.schema${originalExtension}`,
-  });
-
-  // Create schema type interface
-  const schemaInterfaceName = `${modelName}`;
+  const isTypeScript = originalExtension === '.ts';
 
   // Collect imports needed for schema interface
   const schemaImports = new Set<string>();
@@ -736,38 +704,39 @@ function generateRegularModelArtifacts(
     });
   }
 
-  // Note: We don't import or extend ExtensionSignature in schema types to avoid
-  // circular references. The full type with extension properties is available
-  // by importing from the extension file (e.g., import { IssueExtension } from 'app/data/extensions/issue')
+  // Build the schema object
+  const schemaName = `${modelName}Schema`;
+  const schemaObject = buildLegacySchemaObject(baseName, schemaFields, mixinTraits, mixinExtensions, isFragment);
 
-  // Determine extends clause for schema interface - only include trait interfaces
-  // Note: We don't extend ExtensionSignature here to avoid circular references.
-  // The extension file's interface extends the schema type, and external code
-  // should import from extensions when they need the full type with extension properties.
-  let extendsClause: string | undefined;
-  if (mixinTraits.length > 0) {
-    // Add trait interfaces to extends clause
-    const traitInterfaces = mixinTraits.map((trait) => `${toPascalCase(trait)}Trait`);
-    extendsClause = traitInterfaces.join(', ');
-  }
+  // Detect quote style from source
+  const useSingleQuotes = detectQuoteStyle(source) === 'single';
 
-  const schemaTypeArtifact = createTypeArtifact(
+  // Generate merged schema code (schema + types in one file)
+  const mergedSchemaCode = generateMergedSchemaCode({
     baseName,
-    schemaInterfaceName,
-    schemaFieldTypes,
-    'resource',
-    extendsClause,
-    Array.from(schemaImports),
-    '.ts' // Type files should always be .ts regardless of source file extension
-  );
-  artifacts.push(schemaTypeArtifact);
+    interfaceName: modelName,
+    schemaName,
+    schemaObject,
+    properties: schemaFieldTypes,
+    traits: mixinTraits,
+    imports: schemaImports,
+    isTypeScript,
+    useSingleQuotes,
+    options,
+  });
+
+  artifacts.push({
+    type: 'schema',
+    name: schemaName,
+    code: mergedSchemaCode,
+    suggestedFileName: `${baseName}.schema${originalExtension}`,
+  });
 
   // Create extension artifact preserving original file content
-  // For models, extensions should extend the model interface
   const modelInterfaceName = modelName;
   const modelImportPath = options?.resourcesImport
-    ? `${options.resourcesImport}/${baseName}.schema.types`
-    : `../resources/${baseName}.schema.types`;
+    ? `${options.resourcesImport}/${baseName}.schema`
+    : `../resources/${baseName}.schema`;
   const extensionArtifact = createExtensionFromOriginalFile(
     filePath,
     source,
@@ -778,7 +747,9 @@ function generateRegularModelArtifacts(
     options,
     modelInterfaceName,
     modelImportPath,
-    'model' // Source is a model file
+    'model', // Source is a model file
+    undefined, // processImports - not used for models
+    'resource' // Extension context - resource extensions go to resourcesDir
   );
 
   debugLog(options, `Extension artifact created: ${!!extensionArtifact}`);
@@ -796,37 +767,13 @@ function generateRegularModelArtifacts(
     const extensionSignatureType = `${modelName}ExtensionSignature`;
     const extensionClassName = `${modelName}Extension`;
 
-    // Check if the extension file is TypeScript or JavaScript
-    const isTypeScript = extensionArtifact.suggestedFileName.endsWith('.ts');
+    // Check if the extension file is TypeScript
+    const isExtensionTypeScript = extensionArtifact.suggestedFileName.endsWith('.ts');
 
-    if (isTypeScript) {
+    if (isExtensionTypeScript) {
       // Generate TypeScript type alias
       const signatureCode = `export type ${extensionSignatureType} = typeof ${extensionClassName};`;
       extensionArtifact.code += '\n\n' + signatureCode;
-    } else {
-      // For JavaScript files, generate the @this {Type} pattern with base class
-      const jsdocCode = generateJavaScriptExtensionJSDoc(extensionClassName, modelInterfaceName, modelImportPath);
-
-      // Check if the base class pattern is already present to avoid duplication
-      if (!extensionArtifact.code.includes('const Base = class {};')) {
-        // Add the JSDoc comments and base class before the existing class declaration
-        // and modify the class to extend Base
-        extensionArtifact.code = extensionArtifact.code.replace(
-          `export class ${extensionClassName} {`,
-          `${jsdocCode}
-export class ${extensionClassName} extends Base {`
-        );
-      } else {
-        // Just modify the class to extend Base if the pattern is already there
-        extensionArtifact.code = extensionArtifact.code.replace(
-          `export class ${extensionClassName} {`,
-          `export class ${extensionClassName} extends Base {`
-        );
-      }
-
-      // Add the signature typedef at the end of the file
-      const signatureTypedef = `/** @typedef {typeof ${extensionClassName}} ${extensionSignatureType} */`;
-      extensionArtifact.code += '\n\n' + signatureTypedef;
     }
   }
 
@@ -879,24 +826,10 @@ function generateIntermediateModelTraitArtifacts(
   }
 
   const { schemaFields, extensionProperties, mixinTraits, defaultExportNode } = analysis;
-  debugLog(
-    options,
-    `DEBUG: defaultExportNode in generateIntermediateModelTraitArtifacts: ${defaultExportNode ? 'defined' : 'undefined'}`
-  );
-
-  // Generate trait schema artifact
-  const traitSchemaName = `${traitPascalName}Trait`;
-  const traitCode = generateTraitSchemaCode(traitSchemaName, traitName, schemaFields, mixinTraits);
 
   // Determine the file extension based on the original model file
   const originalExtension = getFileExtension(filePath);
-
-  artifacts.push({
-    type: 'trait',
-    name: traitSchemaName,
-    code: traitCode,
-    suggestedFileName: `${traitName}.schema${originalExtension}`,
-  });
+  const isTypeScript = originalExtension === '.ts';
 
   // Generate trait type interface
   const traitFieldTypes = schemaFields.map((field) => {
@@ -989,8 +922,9 @@ function generateIntermediateModelTraitArtifacts(
 
       // Check if the trait file actually exists before adding import
       if (options?.traitsDir) {
-        const traitFilePath = join(options.traitsDir, `${trait}.schema.types.ts`);
-        if (!existsSync(traitFilePath)) {
+        const traitFilePath = join(options.traitsDir, `${trait}.schema.ts`);
+        const traitFilePathJs = join(options.traitsDir, `${trait}.schema.js`);
+        if (!existsSync(traitFilePath) && !existsSync(traitFilePathJs)) {
           debugLog(options, `Skipping trait import for '${trait}' - file does not exist at ${traitFilePath}`);
           return;
         }
@@ -998,8 +932,8 @@ function generateIntermediateModelTraitArtifacts(
 
       // Import trait type - use configured path or default to relative
       const traitImport = options?.traitsImport
-        ? `type { ${otherTraitTypeName} } from '${options.traitsImport}/${trait}.schema.types'`
-        : `type { ${otherTraitTypeName} } from './${trait}.schema.types'`;
+        ? `type { ${otherTraitTypeName} } from '${options.traitsImport}/${trait}.schema'`
+        : `type { ${otherTraitTypeName} } from './${trait}.schema'`;
       traitImports.add(traitImport);
     });
   }
@@ -1012,33 +946,52 @@ function generateIntermediateModelTraitArtifacts(
     debugLog(options, `DEBUG: Added Store type import: ${storeImport}`);
   }
 
-  // Determine extends clause for trait interface
-  let extendsClause: string | undefined;
-  if (mixinTraits.length > 0) {
-    // Only include traits that actually exist
-    const validTraits = mixinTraits.filter((trait) => {
-      if (options?.traitsDir) {
-        const traitFilePath = join(options.traitsDir, `${trait}.schema.types.ts`);
-        return existsSync(traitFilePath);
-      }
-      return true; // If no traitsDir, assume it exists
-    });
+  // Build the trait schema object
+  const traitSchemaName = `${traitPascalName}Trait`;
+  const traitSchemaObject: Record<string, unknown> = {
+    fields: schemaFields.map((field) => ({
+      kind: field.kind,
+      name: field.name,
+      ...(field.type ? { type: field.type } : {}),
+      ...(field.options && Object.keys(field.options).length > 0 ? { options: field.options } : {}),
+    })),
+  };
 
-    if (validTraits.length > 0) {
-      const traitInterfaces = validTraits.map((trait) => `${toPascalCase(trait)}Trait`);
-      extendsClause = traitInterfaces.join(', ');
-    }
+  if (mixinTraits.length > 0) {
+    traitSchemaObject.traits = mixinTraits;
   }
 
-  // For traits with extension properties, we don't add them to the trait interface
-  // Extensions are handled separately as mixins/decorators
+  // Detect quote style from source
+  const useSingleQuotes = detectQuoteStyle(source) === 'single';
+
+  // Generate merged trait schema code (schema + types in one file)
+  const mergedTraitSchemaCode = generateMergedTraitSchemaCode({
+    baseName: traitName,
+    traitInterfaceName: traitSchemaName,
+    schemaName: traitSchemaName,
+    schemaObject: traitSchemaObject,
+    properties: traitFieldTypes,
+    traits: mixinTraits,
+    imports: traitImports,
+    isTypeScript,
+    useSingleQuotes,
+  });
+
+  artifacts.push({
+    type: 'trait',
+    name: traitSchemaName,
+    code: mergedTraitSchemaCode,
+    suggestedFileName: `${traitName}.schema${originalExtension}`,
+  });
+
+  // For traits with extension properties, create extension artifact
   if (extensionProperties.length > 0) {
     // Create the extension artifact preserving original file content
     // For traits, extensions should extend the trait interface
     const traitInterfaceName = traitPascalName;
     const traitImportPath = options?.traitsImport
-      ? `${options.traitsImport}/${traitName}.schema.types`
-      : `../traits/${traitName}.schema.types`;
+      ? `${options.traitsImport}/${traitName}.schema`
+      : `../traits/${traitName}.schema`;
     const extensionArtifact = createExtensionFromOriginalFile(
       filePath,
       source,
@@ -1049,7 +1002,9 @@ function generateIntermediateModelTraitArtifacts(
       options,
       traitInterfaceName,
       traitImportPath,
-      'model' // Source is a model file (intermediate model generating trait)
+      'model', // Source is a model file (intermediate model generating trait)
+      undefined, // processImports - not used for models
+      'trait' // Extension context - trait extensions go to traitsDir
     );
     if (extensionArtifact) {
       artifacts.push(extensionArtifact);
@@ -1058,32 +1013,18 @@ function generateIntermediateModelTraitArtifacts(
       const extensionSignatureType = `${traitPascalName}ExtensionSignature`;
       const extensionClassName = `${traitPascalName}Extension`;
 
-      // Check if the extension file is TypeScript or JavaScript
-      const isTypeScript = extensionArtifact.suggestedFileName.endsWith('.ts');
+      // Check if the extension file is TypeScript
+      const isExtensionTypeScript = extensionArtifact.suggestedFileName.endsWith('.ts');
 
-      let signatureCode: string;
-      if (isTypeScript) {
+      if (isExtensionTypeScript) {
         // Generate TypeScript type alias
-        signatureCode = `export type ${extensionSignatureType} = typeof ${extensionClassName};`;
-      } else {
-        // Generate JSDoc type alias for JavaScript files
-        signatureCode = `/** @typedef {typeof ${extensionClassName}} ${extensionSignatureType} */`;
-      }
+        const signatureCode = `export type ${extensionSignatureType} = typeof ${extensionClassName};`;
 
-      // Add the signature type alias to the extension file
-      extensionArtifact.code += '\n\n' + signatureCode;
+        // Add the signature type alias to the extension file
+        extensionArtifact.code += '\n\n' + signatureCode;
+      }
     }
   }
-
-  const traitTypeArtifact = createTypeArtifact(
-    traitName,
-    traitSchemaName,
-    traitFieldTypes,
-    'trait',
-    extendsClause,
-    Array.from(traitImports)
-  );
-  artifacts.push(traitTypeArtifact);
 
   return artifacts;
 }
@@ -1542,6 +1483,10 @@ function extractModelFields(
     const mixinImports = getMixinImports(root, options);
     mixinTraits.push(...extractMixinTraits(heritageClause, root, mixinImports, options));
 
+    // Extract mixin extensions (mixins with non-trait properties like methods, computed properties)
+    const mixinExts = extractMixinExtensions(heritageClause, root, mixinImports, filePath, options);
+    mixinExtensions.push(...mixinExts);
+
     // Extract intermediate model traits
     if (options?.intermediateModelPaths && options.intermediateModelPaths.length > 0) {
       const intermediateTraits = extractIntermediateModelTraits(
@@ -1916,23 +1861,108 @@ function extractMixinTraits(
 }
 
 /**
- * Extract kebab-case base name (without extension) from a path
+ * Extract mixin extensions for a model file
+ * Uses the pre-computed modelToMixinsMap to look up which mixins this model uses,
+ * then checks the mixinExtensionCache to get extension names for mixins with extension properties
  */
+function extractMixinExtensions(
+  _heritageClause: SgNode,
+  _root: SgNode,
+  _mixinImports: Map<string, string>,
+  filePath: string,
+  options?: TransformOptions
+): string[] {
+  const mixinExtensions: string[] = [];
+
+  const modelMixins = options?.modelToMixinsMap?.get(filePath);
+  if (!modelMixins || modelMixins.size === 0) {
+    return mixinExtensions;
+  }
+
+  for (const mixinFilePath of modelMixins) {
+    // Check the mixinExtensionCache to see if this mixin has an extension
+    const cacheEntry = mixinExtensionCache.get(mixinFilePath);
+    if (cacheEntry?.hasExtension && cacheEntry.extensionName) {
+      mixinExtensions.push(cacheEntry.extensionName);
+    } else {
+    }
+  }
+
+  return mixinExtensions;
+}
 
 /**
- * Generate JSDoc pattern for JavaScript extensions with proper type merging
+ * Analyze a mixin file to determine if it has extension properties
+ * Returns the extension name if the mixin has non-trait properties (methods, computed, etc.)
  */
-function generateJavaScriptExtensionJSDoc(
-  extensionClassName: string,
-  modelInterfaceName: string,
-  modelImportPath: string
-): string {
-  return `// The following is a workaround for the fact that we can't properly do
-// declaration merging in .js files. If this is converted to a .ts file,
-// we can remove this and just use the declaration merging.
-/** @import { ${modelInterfaceName} } from '${modelImportPath}' */
-/** @type {{ new(): ${modelInterfaceName} }} */
-const Base = class {};`;
+function analyzeMixinForExtension(
+  filePath: string,
+  source: string,
+  options: TransformOptions
+): { hasExtension: boolean; extensionName: string | null } {
+  try {
+    const lang = getLanguageFromPath(filePath);
+    const ast = parse(lang, source);
+    const root = ast.root();
+
+    const mixinSources = ['@ember/object/mixin'];
+    const mixinLocalName = findEmberImportLocalName(root, mixinSources, options, filePath, process.cwd());
+    if (!mixinLocalName) {
+      return { hasExtension: false, extensionName: null };
+    }
+
+    // Get EmberData imports for detecting trait fields
+    const emberDataSources = [options?.emberDataImportSource || DEFAULT_EMBER_DATA_SOURCE];
+    const emberDataImports = getEmberDataImports(root, emberDataSources, options);
+
+    // Extract mixin name from file path (camelCase)
+    const mixinName = extractCamelCaseName(filePath);
+
+    // Extract trait fields and extension properties
+    const { extensionProperties } = extractTraitFields(
+      root,
+      emberDataImports,
+      mixinLocalName,
+      mixinName,
+      filePath,
+      options
+    );
+
+    const hasExtension = extensionProperties.length > 0;
+    const extensionName = hasExtension ? `${mixinName}Extension` : null;
+
+    return { hasExtension, extensionName };
+  } catch (error) {
+    debugLog(options, `Error analyzing mixin ${filePath} for extension: ${String(error)}`);
+    return { hasExtension: false, extensionName: null };
+  }
+}
+
+/**
+ * Pre-analyze all mixins in modelConnectedMixins to populate the extension cache
+ */
+export function preAnalyzeConnectedMixinExtensions(
+  mixinFiles: Map<Filename, InputFile>,
+  options: TransformOptions
+): void {
+  if (!options.modelConnectedMixins || options.modelConnectedMixins.size === 0) {
+    debugLog(options, 'No modelConnectedMixins to pre-analyze');
+    return;
+  }
+
+  for (const mixinFilePath of options.modelConnectedMixins) {
+    const mixinSource = mixinFiles.get(mixinFilePath);
+    if (mixinExtensionCache.has(mixinFilePath) || !mixinSource) {
+      continue;
+    }
+
+    try {
+      const analysis = analyzeMixinForExtension(mixinFilePath, mixinSource.code, options);
+      mixinExtensionCache.set(mixinFilePath, analysis);
+    } catch (error) {
+      mixinExtensionCache.set(mixinFilePath, { hasExtension: false, extensionName: null });
+    }
+  }
 }
 
 /**
@@ -1978,33 +2008,33 @@ function transformModelImportsInSource(source: string, root: SgNode): string {
     // Check if this is a relative import to another model file
     // Pattern 1: import type SomeThing from './some-thing';
     const relativeImportMatch = importText.match(RELATIVE_TYPE_IMPORT_REGEX);
-    // Pattern 2: import type { SomeThing } from './some-thing.schema.types';
+    // Pattern 2: import type { SomeThing } from './some-thing.schema';
     const namedImportMatch = importText.match(NAMED_TYPE_IMPORT_REGEX);
 
     if (relativeImportMatch) {
       const [fullMatch, typeName, relativePath] = relativeImportMatch;
 
-      // Transform to named import from schema.types
+      // Transform to named import from schema
       // e.g., import type SomeThing from './some-thing.ts';
-      // becomes import type { SomeThing } from './some-thing.schema.types';
+      // becomes import type { SomeThing } from './some-thing.schema';
       // But remove 'Model' suffix if present since interfaces don't use it
       const pathWithoutExtension = removeFileExtension(relativePath);
       const interfaceName = typeName.endsWith('Model') ? typeName.slice(0, -5) : typeName;
 
       const transformedImport =
         typeName !== interfaceName
-          ? `import type { ${interfaceName} as ${typeName} } from '${pathWithoutExtension}.schema.types';`
-          : `import type { ${typeName} } from '${pathWithoutExtension}.schema.types';`;
+          ? `import type { ${interfaceName} as ${typeName} } from '${pathWithoutExtension}.schema';`
+          : `import type { ${typeName} } from '${pathWithoutExtension}.schema';`;
 
       result = result.replace(fullMatch, transformedImport);
     } else if (namedImportMatch) {
       const [fullMatch, typeName, relativePath] = namedImportMatch;
 
-      // Handle named imports from schema.types files - fix Model suffix issue
-      if (relativePath.includes('.schema.types') && typeName.endsWith('Model')) {
-        const pathWithoutExtension = relativePath.replace(SCHEMA_TYPES_SUFFIX_REGEX, '');
+      // Handle named imports from schema files - fix Model suffix issue
+      if (relativePath.includes('.schema') && typeName.endsWith('Model')) {
+        const pathWithoutExtension = relativePath.replace(SCHEMA_SUFFIX_REGEX, '');
         const interfaceName = typeName.slice(0, -5); // Remove 'Model' suffix
-        const transformedImport = `import type { ${interfaceName} as ${typeName} } from '${pathWithoutExtension}.schema.types';`;
+        const transformedImport = `import type { ${interfaceName} as ${typeName} } from '${pathWithoutExtension}.schema';`;
 
         result = result.replace(fullMatch, transformedImport);
       }
@@ -2012,28 +2042,4 @@ function transformModelImportsInSource(source: string, root: SgNode): string {
   }
 
   return result;
-}
-
-/** Generate schema code - only contains necessary imports for schema references and the schema export */
-function generateSchemaCode(
-  schemaName: string,
-  type: string,
-  schemaFields: SchemaField[],
-  mixinTraits: string[],
-  mixinExtensions: string[],
-  originalSource: string,
-  defaultExportNode: SgNode | null,
-  root: SgNode,
-  isFragment?: boolean
-): string {
-  const legacySchema = buildLegacySchemaObject(type, schemaFields, mixinTraits, mixinExtensions, isFragment);
-
-  // Detect quote style from original source
-  const useSingleQuotes = detectQuoteStyle(originalSource) === 'single';
-  const exportStatement = generateExportStatement(schemaName, legacySchema, useSingleQuotes);
-
-  // For now, schema files should only contain the schema export
-  // In the future, we may need to analyze the schema for complex default values
-  // that require imports, but currently schemas don't have complex default values
-  return exportStatement;
 }

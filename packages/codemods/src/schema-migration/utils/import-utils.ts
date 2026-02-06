@@ -16,7 +16,7 @@ import {
 import {
   createQuotedPathRegex,
   escapeRegexChars,
-  EXTENSION_PATH_REGEX,
+  EXT_FILE_PATH_REGEX,
   FILE_EXTENSION_REGEX,
   IMPORT_DEFAULT_REGEX,
   IMPORT_PATH_SINGLE_QUOTE_REGEX,
@@ -24,7 +24,7 @@ import {
   LEADING_HYPHEN_REGEX,
   MODEL_SUFFIX_REGEX,
   QUOTE_CHARS_REGEX,
-  SCHEMA_TYPES_PATH_REGEX,
+  SCHEMA_PATH_REGEX,
   UPPERCASE_LETTER_REGEX,
 } from './string.js';
 
@@ -102,16 +102,16 @@ export function generateCommonWarpDriveImports(options?: TransformOptions): {
 /**
  * Generate a trait type import statement
  * e.g., generateTraitImport('shareable', options) returns:
- *   "type { ShareableTrait } from 'app/data/traits/shareable.schema.types'"
+ *   "type { ShareableTrait } from 'app/data/traits/shareable.schema'"
  * or with default path:
- *   "type { ShareableTrait } from '../traits/shareable.schema.types'"
+ *   "type { ShareableTrait } from '../traits/shareable.schema'"
  */
 export function generateTraitImport(traitName: string, options?: TransformOptions): string {
   const traitTypeName = `${toPascalCase(traitName)}Trait`;
   if (options?.traitsImport) {
-    return `type { ${traitTypeName} } from '${options.traitsImport}/${traitName}.schema.types'`;
+    return `type { ${traitTypeName} } from '${options.traitsImport}/${traitName}.schema'`;
   }
-  return `type { ${traitTypeName} } from '../traits/${traitName}.schema.types'`;
+  return `type { ${traitTypeName} } from '../traits/${traitName}.schema'`;
 }
 
 /**
@@ -180,12 +180,10 @@ function shouldImportFromTraits(relatedType: string, options?: TransformOptions)
  * Transform a model type name to the appropriate import path
  * Priority order:
  * 1. Traits (for intermediate models/connected mixins)
- * 2. Extensions (for models with extension files - gives full type with computed getters)
- * 3. Resources (schema.types fallback)
+ * 2. Resources (schema fallback)
  *
- * e.g., 'user' becomes 'my-app/data/extensions/user' if user has an extension
- * e.g., 'user' becomes 'my-app/data/resources/user.schema.types' if no extension
- * e.g., 'shareable' becomes 'my-app/data/traits/shareable.schema.types' if only shareable mixin exists
+ * e.g., 'user' becomes 'my-app/data/resources/user.schema'
+ * e.g., 'shareable' becomes 'my-app/data/traits/shareable.schema' if only shareable mixin exists
  */
 export function transformModelToResourceImport(
   relatedType: string,
@@ -199,22 +197,9 @@ export function transformModelToResourceImport(
     const traitInterfaceName = `${toPascalCase(relatedType)}Trait`;
     const aliasName = toPascalCase(relatedType); // Use the original name as alias for backward compatibility
     if (traitsImport) {
-      return `type { ${traitInterfaceName} as ${aliasName} } from '${traitsImport}/${relatedType}.schema.types'`;
+      return `type { ${traitInterfaceName} as ${aliasName} } from '${traitsImport}/${relatedType}.schema'`;
     } else {
-      return `type { ${traitInterfaceName} as ${aliasName} } from '../traits/${relatedType}.schema.types'`;
-    }
-  }
-
-  // Check if this model has an extension file - prefer extension imports for full type
-  // This gives consumers access to computed getters and other extension-defined properties
-  if (options?.modelsWithExtensions?.has(relatedType)) {
-    const extensionClassName = `${toPascalCase(relatedType)}Extension`;
-    const extensionsImport = options?.extensionsImport;
-    debugLog(options, `Model ${relatedType} has extension, importing from extension file`);
-    if (extensionsImport) {
-      return `type { ${extensionClassName} as ${modelName} } from '${extensionsImport}/${relatedType}'`;
-    } else {
-      return `type { ${extensionClassName} as ${modelName} } from '../extensions/${relatedType}'`;
+      return `type { ${traitInterfaceName} as ${aliasName} } from '../traits/${relatedType}.schema'`;
     }
   }
 
@@ -245,9 +230,9 @@ export function transformModelToResourceImport(
           const aliasName = toPascalCase(relatedType);
           debugLog(options, `No model found for ${relatedType}, falling back to trait`);
           if (traitsImport) {
-            return `type { ${traitInterfaceName} as ${aliasName} } from '${traitsImport}/${relatedType}.schema.types'`;
+            return `type { ${traitInterfaceName} as ${aliasName} } from '${traitsImport}/${relatedType}.schema'`;
           } else {
-            return `type { ${traitInterfaceName} as ${aliasName} } from '../traits/${relatedType}.schema.types'`;
+            return `type { ${traitInterfaceName} as ${aliasName} } from '../traits/${relatedType}.schema'`;
           }
         }
       }
@@ -257,7 +242,7 @@ export function transformModelToResourceImport(
   // Default to resource import (either we found a model, or we're assuming it's a resource)
   const resourcesImport = getResourcesImport(options);
 
-  return `type { ${modelName} } from '${resourcesImport}/${relatedType}.schema.types'`;
+  return `type { ${modelName} } from '${resourcesImport}/${relatedType}.schema'`;
 }
 
 /**
@@ -943,8 +928,8 @@ function convertImportToAbsolute(
       const mixinName = extractBaseName(resolvedPath);
       const traitName = mixinNameToTraitName(mixinName);
       const traitImport = options?.traitsImport
-        ? `${options.traitsImport}/${traitName}.schema.types`
-        : `../traits/${traitName}.schema.types`;
+        ? `${options.traitsImport}/${traitName}.schema`
+        : `../traits/${traitName}.schema`;
 
       debugLog(options, `Converting special mixin import ${originalImport} to trait import: ${traitImport}`);
       return traitImport;
@@ -956,8 +941,8 @@ function convertImportToAbsolute(
       const mixinName = extractBaseName(resolvedPath);
       const traitName = mixinNameToTraitName(mixinName);
       const traitImport = options?.traitsImport
-        ? `${options.traitsImport}/${traitName}.schema.types`
-        : `../traits/${traitName}.schema.types`;
+        ? `${options.traitsImport}/${traitName}.schema`
+        : `../traits/${traitName}.schema`;
 
       debugLog(options, `Converting mixin import ${originalImport} to trait import: ${traitImport}`);
       return traitImport;
@@ -1046,18 +1031,18 @@ export function processImports(source: string, filePath: string, baseDir: string
             `${quoteChar}${convertedImport}${quoteChar}`
           );
 
-          // If the target is a .schema.types file, convert default imports to named imports
+          // If the target is a .schema file, convert default imports to named imports
           // But only for TypeScript files (.ts), not JavaScript files (.js)
-          if (convertedImport.includes('.schema.types') && filePath.endsWith('.ts')) {
+          if (convertedImport.includes('.schema') && filePath.endsWith('.ts')) {
             debugLog(
               options,
-              `Found .schema.types import in TypeScript file, converting default to named: ${originalImport}`
+              `Found .schema import in TypeScript file, converting default to named: ${originalImport}`
             );
 
             // Check if this is a trait import (from traits/ directory)
             const isTraitImport = convertedImport.includes('/traits/');
             // Extract the trait/resource base name from the import path
-            const pathMatch = convertedImport.match(SCHEMA_TYPES_PATH_REGEX);
+            const pathMatch = convertedImport.match(SCHEMA_PATH_REGEX);
             const baseName = pathMatch ? pathMatch[2] : null;
 
             // Convert "import type ModelName from 'path'" to "import type { ModelName } from 'path'"
@@ -1092,25 +1077,23 @@ export function processImports(source: string, filePath: string, baseDir: string
             // Reset regex lastIndex for reuse
             IMPORT_DEFAULT_REGEX.lastIndex = 0;
             debugLog(options, `Converted default import to named import: ${newImport}`);
-          } else if (convertedImport.includes('.schema.types') && filePath.endsWith('.js')) {
+          } else if (convertedImport.includes('.schema') && filePath.endsWith('.js')) {
             debugLog(
               options,
-              `Found .schema.types import in JavaScript file, skipping TypeScript syntax conversion: ${originalImport}`
+              `Found .schema import in JavaScript file, skipping TypeScript syntax conversion: ${originalImport}`
             );
             // For JavaScript files, we should not use TypeScript import type syntax
             // The import should remain as a regular import, not converted to named import
-          } else if (convertedImport.includes('/extensions/') && filePath.endsWith('.ts')) {
-            // Extension files export named classes with 'Extension' suffix
-            // Convert "import type User from '.../extensions/user'" to
-            // "import type { UserExtension as User } from '.../extensions/user'"
-            // Or "import type UserModel from '.../extensions/user'" to
-            // "import type { UserExtension as UserModel } from '.../extensions/user'"
+          } else if (convertedImport.includes('.ext') && filePath.endsWith('.ts')) {
+            // Extension files (.ext.ts) export named classes with 'Extension' suffix
+            // Convert "import type User from '.../user.ext'" to
+            // "import type { UserExtension as User } from '.../user.ext'"
             debugLog(
               options,
               `Found extension import in TypeScript file, converting default to named: ${originalImport}`
             );
             // Extract the model base name from the import path to get correct Extension class name
-            const extensionPathMatch = convertedImport.match(EXTENSION_PATH_REGEX);
+            const extensionPathMatch = convertedImport.match(EXT_FILE_PATH_REGEX);
             const modelBaseName = extensionPathMatch ? extensionPathMatch[1] : null;
             const extensionClassName = modelBaseName ? toPascalCase(modelBaseName) + 'Extension' : null;
 
@@ -1130,7 +1113,7 @@ export function processImports(source: string, filePath: string, baseDir: string
               debugLog(options, `Converted extension import to named import: ${newImport}`);
             }
           } else {
-            debugLog(options, `Not a .schema.types or extension import, skipping conversion: ${convertedImport}`);
+            debugLog(options, `Not a .schema or .ext import, skipping conversion: ${convertedImport}`);
           }
 
           processedSource = processedSource.replace(originalImport, newImport);

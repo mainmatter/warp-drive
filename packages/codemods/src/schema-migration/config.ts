@@ -1,3 +1,5 @@
+import { connectedMixins, modelToMixinsMap } from "./processors/mixin-analyzer";
+
 export interface TransformOptions {
   verbose?: boolean;
   debug?: boolean;
@@ -7,7 +9,8 @@ export interface TransformOptions {
   /** Test mode - treats all mixins as connected to models (for testing) */
   testMode?: boolean;
   /** Set of absolute file paths for mixins that are connected to models */
-  modelConnectedMixins?: Set<string>;
+  modelConnectedMixins?: connectedMixins;
+  modelToMixinsMap?: modelToMixinsMap;
   /** List of all discovered mixin file paths (for polymorphic detection) */
   allMixinFiles?: string[];
   /** List of all discovered model file paths (for resource vs trait detection) */
@@ -38,14 +41,10 @@ export interface TransformOptions {
   resourcesImport?: string;
   /** Directory to write generated resource schemas to */
   resourcesDir?: string;
-  /** Directory to write generated extension files to */
-  extensionsDir?: string;
   /** Directory to write generated trait files to */
   traitsDir?: string;
   /** Base import path for trait type imports (optional, defaults to relative imports) */
   traitsImport?: string;
-  /** Base import path for extension type imports (optional, defaults to relative imports) */
-  extensionsImport?: string;
   /** Custom type mappings for EmberData transform types (e.g., 'uuid' -> 'string') */
   typeMapping?: Record<string, string>;
   /** Internal flag to indicate we're processing an intermediate model that should become a trait */
@@ -67,10 +66,10 @@ export interface TransformOptions {
   generateExternalResources?: boolean;
 
   baseModel?: {
-    import: string,
-    extension?: string,
-    trait: string,
-  }
+    import: string;
+    extension?: string;
+    trait: string;
+  };
 }
 
 export interface MigrateOptions extends Partial<TransformOptions> {

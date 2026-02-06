@@ -123,50 +123,46 @@ export default class DataFieldModel extends Model {
     expect(result.artifacts).toMatchInlineSnapshot(`
       [
         {
-          "code": "export const DataFieldTrait = {
-        "fields": [
+          "code": "import type { BelongsToReference, HasManyReference, Errors } from '@warp-drive/legacy/model/-private';
+      const DataFieldTrait = {
+        'fields': [
           {
-            "kind": "attribute",
-            "name": "fieldName",
-            "type": "string"
+            'kind': 'attribute',
+            'name': 'fieldName',
+            'type': 'string'
           }
         ]
-      };",
+      } as const;
+
+      export default DataFieldTrait;
+
+      export interface DataFieldTrait {
+        id: string | null;
+        readonly fieldName: string | null;
+        readonly isNew: boolean;
+        readonly hasDirtyAttributes: boolean;
+        readonly isDeleted: boolean;
+        readonly isSaving: boolean;
+        readonly isValid: boolean;
+        readonly isError: boolean;
+        readonly isLoaded: boolean;
+        readonly isEmpty: boolean;
+        save: (options?: Record<string, unknown>) => Promise<this>;
+        reload: (options?: Record<string, unknown>) => Promise<this>;
+        deleteRecord: () => void;
+        unloadRecord: () => void;
+        destroyRecord: (options?: Record<string, unknown>) => Promise<void>;
+        rollbackAttributes: () => void;
+        belongsTo: (propertyName: string) => BelongsToReference;
+        hasMany: (propertyName: string) => HasManyReference;
+        serialize: (options?: Record<string, unknown>) => unknown;
+        readonly errors: Errors;
+        readonly adapterError: Error | null;
+        readonly isReloading: boolean;
+      }",
           "name": "DataFieldTrait",
           "suggestedFileName": "data-field.schema.ts",
           "type": "trait",
-        },
-        {
-          "code": "import type { BelongsToReference, HasManyReference, Errors } from '@warp-drive/legacy/model/-private';
-
-      export interface DataFieldTrait {
-      	id: string | null;
-      	readonly fieldName: string | null;
-      	readonly isNew: boolean;
-      	readonly hasDirtyAttributes: boolean;
-      	readonly isDeleted: boolean;
-      	readonly isSaving: boolean;
-      	readonly isValid: boolean;
-      	readonly isError: boolean;
-      	readonly isLoaded: boolean;
-      	readonly isEmpty: boolean;
-      	save: (options?: Record<string, unknown>) => Promise<this>;
-      	reload: (options?: Record<string, unknown>) => Promise<this>;
-      	deleteRecord: () => void;
-      	unloadRecord: () => void;
-      	destroyRecord: (options?: Record<string, unknown>) => Promise<void>;
-      	rollbackAttributes: () => void;
-      	belongsTo: (propertyName: string) => BelongsToReference;
-      	hasMany: (propertyName: string) => HasManyReference;
-      	serialize: (options?: Record<string, unknown>) => unknown;
-      	readonly errors: Errors;
-      	readonly adapterError: Error | null;
-      	readonly isReloading: boolean;
-      }
-      ",
-          "name": "DataFieldTrait",
-          "suggestedFileName": "data-field.schema.types.ts",
-          "type": "trait-type",
         },
       ]
     `);

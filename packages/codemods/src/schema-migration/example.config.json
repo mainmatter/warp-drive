@@ -12,7 +12,6 @@
   "modelImportSource": "my-app/models",
   "resourcesImport": "my-app/data/resources",
   "traitsDir": "./generated/traits",
-  "extensionsDir": "./generated/extensions",
   "resourcesDir": "./generated/schemas",
   "typeMapping": {
     "uuid": "string",

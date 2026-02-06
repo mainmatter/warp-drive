@@ -43,7 +43,6 @@ export {
   extractTypeFromDeclaration,
   extractTypeFromDecorator,
   extractTypeFromMethod,
-  extractJSDocTypes,
   extractTypesFromInterface,
 } from './type-utils.js';
 export type { ExtractedType, SchemaFieldForType } from './type-utils.js';
@@ -58,7 +57,6 @@ export {
   parseObjectLiteralFromNode,
   parseObjectPropertiesFromNode,
   parseObjectLiteral,
-  extractJSDocComment,
   extractExistingImports,
   withTransformWrapper,
   findAssociatedInterface,
@@ -75,12 +73,21 @@ export {
   generateTraitSchemaCode,
   convertToSchemaField,
   generateInterfaceCode,
-  generateJSDocInterface,
   createTypeArtifact,
   createExtensionArtifact,
   createExtensionArtifactWithTypes,
+  traitNameToInterfaceName,
+  traitNameToImportPath,
+  generateMergedSchemaCode,
+  generateMergedTraitSchemaCode,
 } from './schema-generation.js';
-export type { TransformArtifact, PropertyInfo, SchemaField } from './schema-generation.js';
+export type {
+  TransformArtifact,
+  PropertyInfo,
+  SchemaField,
+  MergedSchemaOptions,
+  MergedTraitSchemaOptions,
+} from './schema-generation.js';
 
 // Re-export from import-utils
 export {

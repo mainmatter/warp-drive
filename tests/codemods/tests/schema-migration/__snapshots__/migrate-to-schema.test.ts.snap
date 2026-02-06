@@ -2,11 +2,12 @@
 
 exports[`migrate-to-schema batch operation > colocates type files with their corresponding schemas and traits > nested directory files 1`] = `
 {
-  "extensions/": "__dir__",
   "resources/": "__dir__",
   "resources/admin/": "__dir__",
   "resources/admin/admin-model.schema.ts": "
-export const AdminModelSchema = {
+import type { Type } from '@ember-data/core-types/symbols';
+import type { ConnectedTrait } from 'test-app/data/traits/connected.schema';
+const AdminModelSchema = {
   'type': 'admin-model',
   'legacy': true,
   'identity': {
@@ -23,18 +24,17 @@ export const AdminModelSchema = {
   'traits': [
     'connected'
   ]
-};",
-  "resources/admin/admin-model.schema.types.ts": "
-import type { Type } from '@ember-data/core-types/symbols';
-import type { ConnectedTrait } from 'test-app/data/traits/connected.schema.types';
+} as const;
+
+export default AdminModelSchema;
 
 export interface AdminModel extends ConnectedTrait {
-	readonly [Type]: 'admin-model';
-	readonly adminName: string | null;
-}
-",
+  readonly [Type]: 'admin-model';
+  readonly adminName: string | null;
+}",
   "resources/admin/nested-model.schema.ts": "
-export const NestedModelSchema = {
+import type { Type } from '@ember-data/core-types/symbols';
+const NestedModelSchema = {
   'type': 'nested-model',
   'legacy': true,
   'identity': {
@@ -48,84 +48,75 @@ export const NestedModelSchema = {
       'type': 'string'
     }
   ]
-};",
-  "resources/admin/nested-model.schema.types.ts": "
-import type { Type } from '@ember-data/core-types/symbols';
+} as const;
+
+export default NestedModelSchema;
 
 export interface NestedModel {
-	readonly [Type]: 'nested-model';
-	readonly name: string | null;
-}
-",
+  readonly [Type]: 'nested-model';
+  readonly name: string | null;
+}",
   "traits/": "__dir__",
   "traits/admin/": "__dir__",
   "traits/admin/connected.schema.ts": "
-export const connectedTrait = {
-  "name": "connected",
-  "mode": "legacy",
-  "fields": [
+const ConnectedTrait = {
+  'name': 'connected',
+  'mode': 'legacy',
+  'fields': [
     {
-      "name": "commonField",
-      "kind": "attribute",
-      "type": "string"
+      'name': 'commonField',
+      'kind': 'attribute',
+      'type': 'string'
     }
   ]
-};",
-  "traits/admin/connected.schema.types.ts": "
+} as const;
+
+export default ConnectedTrait;
+
 export interface ConnectedTrait {
-	commonField: string | null;
-}
-",
+  commonField: string | null;
+}",
 }
 `;
 
 exports[`migrate-to-schema batch operation > colocates type files with their corresponding schemas and traits > nested directory structure 1`] = `
 [
-  "extensions/",
   "resources/",
   "resources/admin/",
   "resources/admin/admin-model.schema.ts",
-  "resources/admin/admin-model.schema.types.ts",
   "resources/admin/nested-model.schema.ts",
-  "resources/admin/nested-model.schema.types.ts",
   "traits/",
   "traits/admin/",
   "traits/admin/connected.schema.ts",
-  "traits/admin/connected.schema.types.ts",
 ]
 `;
 
 exports[`migrate-to-schema batch operation > creates output directories if they do not exist > generated file structure 1`] = `
 [
-  "extensions/",
-  "extensions/user.ts",
   "resources/",
+  "resources/user.ext.ts",
   "resources/user.schema.ts",
-  "resources/user.schema.types.ts",
   "traits/",
 ]
 `;
 
 exports[`migrate-to-schema batch operation > detects mixins referenced via type-only imports > type-only import file structure 1`] = `
 [
-  "extensions/",
   "resources/",
   "resources/audit-log.schema.ts",
-  "resources/audit-log.schema.types.ts",
   "resources/audited-record.schema.ts",
-  "resources/audited-record.schema.types.ts",
   "traits/",
   "traits/auditable.schema.ts",
-  "traits/auditable.schema.types.ts",
 ]
 `;
 
 exports[`migrate-to-schema batch operation > detects mixins referenced via type-only imports > type-only import files 1`] = `
 {
-  "extensions/": "__dir__",
   "resources/": "__dir__",
   "resources/audit-log.schema.ts": "
-export const AuditLogSchema = {
+import type { Type } from '@ember-data/core-types/symbols';
+import type { AuditableTrait } from 'test-app/data/traits/auditable.schema';
+const AuditLogSchema = {
   'type': 'audit-log',
   'legacy': true,
   'identity': {
@@ -142,18 +133,18 @@ export const AuditLogSchema = {
   'traits': [
     'auditable'
   ]
-};",
-  "resources/audit-log.schema.types.ts": "
-import type { Type } from '@ember-data/core-types/symbols';
-import type { AuditableTrait } from 'test-app/data/traits/auditable.schema.types';
+} as const;
+
+export default AuditLogSchema;
 
 export interface AuditLog extends AuditableTrait {
-	readonly [Type]: 'audit-log';
-	readonly action: string | null;
-}
-",
+  readonly [Type]: 'audit-log';
+  readonly action: string | null;
+}",
   "resources/audited-record.schema.ts": "
-export const AuditedRecordSchema = {
+import type { Type } from '@ember-data/core-types/symbols';
+import type { User } from 'test-app/data/resources/user.schema';
+const AuditedRecordSchema = {
   'type': 'audited-record',
   'legacy': true,
   'identity': {
@@ -175,51 +166,48 @@ export const AuditedRecordSchema = {
       }
     }
   ]
-};",
-  "resources/audited-record.schema.types.ts": "
-import type { Type } from '@ember-data/core-types/symbols';
-import type { User } from 'test-app/data/resources/user.schema.types';
+} as const;
+
+export default AuditedRecordSchema;
 
 export interface AuditedRecord {
-	readonly [Type]: 'audited-record';
-	readonly name: string | null;
-	readonly user: User | null;
-}
-",
+  readonly [Type]: 'audited-record';
+  readonly name: string | null;
+  readonly user: User | null;
+}",
   "traits/": "__dir__",
   "traits/auditable.schema.ts": "
-export const auditableTrait = {
-  "name": "auditable",
-  "mode": "legacy",
-  "fields": [
+const AuditableTrait = {
+  'name': 'auditable',
+  'mode': 'legacy',
+  'fields': [
     {
-      "name": "auditStatus",
-      "kind": "attribute",
-      "type": "string"
+      'name': 'auditStatus',
+      'kind': 'attribute',
+      'type': 'string'
     },
     {
-      "name": "auditDate",
-      "kind": "attribute",
-      "type": "date"
+      'name': 'auditDate',
+      'kind': 'attribute',
+      'type': 'date'
     }
   ]
-};",
-  "traits/auditable.schema.types.ts": "
+} as const;
+
+export default AuditableTrait;
+
 export interface AuditableTrait {
-	auditStatus: string | null;
-	auditDate: Date | null;
-}
-",
+  auditStatus: string | null;
+  auditDate: Date | null;
+}",
 }
 `;
 
 exports[`migrate-to-schema batch operation > does not put type files in the default fallback directory > app directory structure 1`] = `
 [
   "data/",
-  "data/extensions/",
   "data/resources/",
   "data/resources/user.schema.ts",
-  "data/resources/user.schema.types.ts",
   "data/traits/",
   "models/",
   "models/user.ts",
@@ -228,24 +216,23 @@ exports[`migrate-to-schema batch operation > does not put type files in the defa
 
 exports[`migrate-to-schema batch operation > dynamically detects traits vs resources for import paths > traits vs resources file structure 1`] = `
 [
-  "extensions/",
   "resources/",
   "resources/test-model.schema.ts",
-  "resources/test-model.schema.types.ts",
   "resources/user.schema.ts",
-  "resources/user.schema.types.ts",
   "traits/",
   "traits/workstreamable.schema.ts",
-  "traits/workstreamable.schema.types.ts",
 ]
 `;
 
 exports[`migrate-to-schema batch operation > dynamically detects traits vs resources for import paths > traits vs resources files 1`] = `
 {
-  "extensions/": "__dir__",
   "resources/": "__dir__",
   "resources/test-model.schema.ts": "
-export const TestModelSchema = {
+import type { Type } from '@ember-data/core-types/symbols';
+import type { User } from 'test-app/data/resources/user.schema';
+import type { WorkstreamableTrait as Workstreamable } from 'test-app/data/traits/workstreamable.schema';
+import type { WorkstreamableTrait } from 'test-app/data/traits/workstreamable.schema';
+const TestModelSchema = {
   'type': 'test-model',
   'legacy': true,
   'identity': {
@@ -273,21 +260,18 @@ export const TestModelSchema = {
   'traits': [
     'workstreamable'
   ]
-};",
-  "resources/test-model.schema.types.ts": "
-import type { Type } from '@ember-data/core-types/symbols';
-import type { User } from 'test-app/data/resources/user.schema.types';
-import type { WorkstreamableTrait as Workstreamable } from 'test-app/data/traits/workstreamable.schema.types';
-import type { WorkstreamableTrait } from 'test-app/data/traits/workstreamable.schema.types';
+} as const;
+
+export default TestModelSchema;
 
 export interface TestModel extends WorkstreamableTrait {
-	readonly [Type]: 'test-model';
-	readonly user: User | null;
-	readonly workstreamable: Workstreamable | null;
-}
-",
+  readonly [Type]: 'test-model';
+  readonly user: User | null;
+  readonly workstreamable: Workstreamable | null;
+}",
   "resources/user.schema.ts": "
-export const UserSchema = {
+import type { Type } from '@ember-data/core-types/symbols';
+const UserSchema = {
   'type': 'user',
   'legacy': true,
   'identity': {
@@ -301,96 +285,83 @@ export const UserSchema = {
       'type': 'string'
     }
   ]
-};",
-  "resources/user.schema.types.ts": "
-import type { Type } from '@ember-data/core-types/symbols';
+} as const;
+
+export default UserSchema;
 
 export interface User {
-	readonly [Type]: 'user';
-	readonly name: string | null;
-}
-",
+  readonly [Type]: 'user';
+  readonly name: string | null;
+}",
   "traits/": "__dir__",
   "traits/workstreamable.schema.ts": "
-export const workstreamableTrait = {
-  "name": "workstreamable",
-  "mode": "legacy",
-  "fields": [
+const WorkstreamableTrait = {
+  'name': 'workstreamable',
+  'mode': 'legacy',
+  'fields': [
     {
-      "name": "workstreamType",
-      "kind": "attribute",
-      "type": "string"
+      'name': 'workstreamType',
+      'kind': 'attribute',
+      'type': 'string'
     }
   ]
-};",
-  "traits/workstreamable.schema.types.ts": "
+} as const;
+
+export default WorkstreamableTrait;
+
 export interface WorkstreamableTrait {
-	workstreamType: string | null;
-}
-",
+  workstreamType: string | null;
+}",
 }
 `;
 
 exports[`migrate-to-schema batch operation > ensures resources and traits include .schema with matching suffixes > schema naming file structure 1`] = `
 [
-  "extensions/",
-  "extensions/js-test-model.js",
-  "extensions/test-mixin.ts",
   "resources/",
+  "resources/js-test-model.ext.js",
   "resources/js-test-model.schema.js",
-  "resources/js-test-model.schema.types.ts",
   "resources/ts-test-model.schema.ts",
-  "resources/ts-test-model.schema.types.ts",
   "traits/",
+  "traits/test-mixin.ext.ts",
   "traits/test-mixin.schema.ts",
-  "traits/test-mixin.schema.types.ts",
 ]
 `;
 
 exports[`migrate-to-schema batch operation > ensures schema files match source extension and type files are always .ts > mixed extensions file structure 1`] = `
 [
-  "extensions/",
   "resources/",
   "resources/js-model.schema.js",
-  "resources/js-model.schema.types.ts",
   "resources/ts-model.schema.ts",
-  "resources/ts-model.schema.types.ts",
   "traits/",
 ]
 `;
 
 exports[`migrate-to-schema batch operation > ensures type files are always .ts regardless of source file extension > type files extension structure 1`] = `
 [
-  "extensions/",
   "resources/",
   "resources/js-model.schema.js",
-  "resources/js-model.schema.types.ts",
   "resources/ts-model.schema.ts",
-  "resources/ts-model.schema.types.ts",
   "traits/",
 ]
 `;
 
 exports[`migrate-to-schema batch operation > generates multiple artifacts when processing multiple files > generated file structure 1`] = `
 [
-  "extensions/",
-  "extensions/company.ts",
   "resources/",
+  "resources/company.ext.ts",
   "resources/company.schema.ts",
-  "resources/company.schema.types.ts",
   "resources/user.schema.ts",
-  "resources/user.schema.types.ts",
   "traits/",
 ]
 `;
 
 exports[`migrate-to-schema batch operation > generates multiple artifacts when processing multiple files > generated files 1`] = `
 {
-  "extensions/": "__dir__",
-  "extensions/company.ts": "
+  "resources/": "__dir__",
+  "resources/company.ext.ts": "
 import Model, { attr, hasMany } from '@ember-data/model';
 
-import type { Company } from 'test-app/data/resources/company.schema.types';
+import type { Company } from 'test-app/data/resources/company.schema';
 
 export interface CompanyExtension extends Company {}
 
@@ -401,9 +372,11 @@ export class CompanyExtension {
 }
 
 export type CompanyExtensionSignature = typeof CompanyExtension;",
-  "resources/": "__dir__",
   "resources/company.schema.ts": "
-export const CompanySchema = {
+import type { Type } from '@ember-data/core-types/symbols';
+import type { User } from 'test-app/data/resources/user.schema';
+import type { HasMany } from '@ember-data/model';
+const CompanySchema = {
   'type': 'company',
   'legacy': true,
   'identity': {
@@ -426,20 +399,18 @@ export const CompanySchema = {
       }
     }
   ]
-};",
-  "resources/company.schema.types.ts": "
-import type { Type } from '@ember-data/core-types/symbols';
-import type { User } from 'test-app/data/resources/user.schema.types';
-import type { HasMany } from '@ember-data/model';
+} as const;
+
+export default CompanySchema;
 
 export interface Company {
-	readonly [Type]: 'company';
-	readonly name: string | null;
-	readonly users: HasMany<User>;
-}
-",
+  readonly [Type]: 'company';
+  readonly name: string | null;
+  readonly users: HasMany<User>;
+}",
   "resources/user.schema.ts": "
-export const UserSchema = {
+import type { Type } from '@ember-data/core-types/symbols';
+const UserSchema = {
   'type': 'user',
   'legacy': true,
   'identity': {
@@ -458,38 +429,35 @@ export const UserSchema = {
       'type': 'string'
     }
   ]
-};",
-  "resources/user.schema.types.ts": "
-import type { Type } from '@ember-data/core-types/symbols';
+} as const;
+
+export default UserSchema;
 
 export interface User {
-	readonly [Type]: 'user';
-	readonly name: string | null;
-	readonly email: string | null;
-}
-",
+  readonly [Type]: 'user';
+  readonly name: string | null;
+  readonly email: string | null;
+}",
   "traits/": "__dir__",
 }
 `;
 
 exports[`migrate-to-schema batch operation > generates schema and type artifacts for models > generated file structure 1`] = `
 [
-  "extensions/",
-  "extensions/user.ts",
   "resources/",
+  "resources/user.ext.ts",
   "resources/user.schema.ts",
-  "resources/user.schema.types.ts",
   "traits/",
 ]
 `;
 
 exports[`migrate-to-schema batch operation > generates schema and type artifacts for models > generated files 1`] = `
 {
-  "extensions/": "__dir__",
-  "extensions/user.ts": "
+  "resources/": "__dir__",
+  "resources/user.ext.ts": "
 import Model, { attr, belongsTo } from '@ember-data/model';
 
-import type { User } from 'test-app/data/resources/user.schema.types';
+import type { User } from 'test-app/data/resources/user.schema';
 
 export interface UserExtension extends User {}
 
@@ -500,9 +468,10 @@ export class UserExtension {
 }
 
 export type UserExtensionSignature = typeof UserExtension;",
-  "resources/": "__dir__",
   "resources/user.schema.ts": "
-export const UserSchema = {
+import type { Type } from '@ember-data/core-types/symbols';
+import type { Company } from 'test-app/data/resources/company.schema';
+const UserSchema = {
   'type': 'user',
   'legacy': true,
   'identity': {
@@ -529,42 +498,38 @@ export const UserSchema = {
       }
     }
   ]
-};",
-  "resources/user.schema.types.ts": "
-import type { Type } from '@ember-data/core-types/symbols';
-import type { Company } from 'test-app/data/resources/company.schema.types';
+} as const;
+
+export default UserSchema;
 
 export interface User {
-	readonly [Type]: 'user';
-	readonly name: string | null;
-	readonly email: string | null;
-	readonly company: Company | null;
-}
-",
+  readonly [Type]: 'user';
+  readonly name: string | null;
+  readonly email: string | null;
+  readonly company: Company | null;
+}",
   "traits/": "__dir__",
 }
 `;
 
 exports[`migrate-to-schema batch operation > handles external mixin imports from additionalMixinSources > external mixins file structure 1`] = `
 [
-  "extensions/",
   "resources/",
   "resources/test-model.schema.ts",
-  "resources/test-model.schema.types.ts",
   "traits/",
   "traits/external-mixin.schema.ts",
-  "traits/external-mixin.schema.types.ts",
   "traits/local-mixin.schema.ts",
-  "traits/local-mixin.schema.types.ts",
 ]
 `;
 
 exports[`migrate-to-schema batch operation > handles external mixin imports from additionalMixinSources > external mixins files 1`] = `
 {
-  "extensions/": "__dir__",
   "resources/": "__dir__",
   "resources/test-model.schema.ts": "
-export const TestModelSchema = {
+import type { Type } from '@ember-data/core-types/symbols';
+import type { ExternalTrait } from 'test-app/data/traits/external.schema';
+import type { LocalTrait } from 'test-app/data/traits/local.schema';
+const TestModelSchema = {
   'type': 'test-model',
   'legacy': true,
   'identity': {
@@ -582,109 +547,81 @@ export const TestModelSchema = {
     'external',
     'local'
   ]
-};",
-  "resources/test-model.schema.types.ts": "
-import type { Type } from '@ember-data/core-types/symbols';
-import type { ExternalTrait } from 'test-app/data/traits/external.schema.types';
-import type { LocalTrait } from 'test-app/data/traits/local.schema.types';
+} as const;
+
+export default TestModelSchema;
 
 export interface TestModel extends ExternalTrait, LocalTrait {
-	readonly [Type]: 'test-model';
-	readonly name: string | null;
-}
-",
+  readonly [Type]: 'test-model';
+  readonly name: string | null;
+}",
   "traits/": "__dir__",
   "traits/external-mixin.schema.ts": "
-export const externalMixinTrait = {
-  "name": "external-mixin",
-  "mode": "legacy",
-  "fields": [
+const ExternalMixinTrait = {
+  'name': 'external-mixin',
+  'mode': 'legacy',
+  'fields': [
     {
-      "name": "externalField",
-      "kind": "attribute",
-      "type": "string"
+      'name': 'externalField',
+      'kind': 'attribute',
+      'type': 'string'
     }
   ]
-};",
-  "traits/external-mixin.schema.types.ts": "
+} as const;
+
+export default ExternalMixinTrait;
+
 export interface ExternalMixinTrait {
-	externalField: string | null;
-}
-",
+  externalField: string | null;
+}",
   "traits/local-mixin.schema.ts": "
-export const localMixinTrait = {
-  "name": "local-mixin",
-  "mode": "legacy",
-  "fields": [
+const LocalMixinTrait = {
+  'name': 'local-mixin',
+  'mode': 'legacy',
+  'fields': [
     {
-      "name": "localField",
-      "kind": "attribute",
-      "type": "string"
+      'name': 'localField',
+      'kind': 'attribute',
+      'type': 'string'
     }
   ]
-};",
-  "traits/local-mixin.schema.types.ts": "
+} as const;
+
+export default LocalMixinTrait;
+
 export interface LocalMixinTrait {
-	localField: string | null;
-}
-",
+  localField: string | null;
+}",
 }
 `;
 
 exports[`migrate-to-schema batch operation > handles mixed js and ts files correctly with proper type file extensions > mixed js/ts file structure 1`] = `
 [
-  "extensions/",
-  "extensions/js-model-with-mixin.js",
-  "extensions/ts-mixin.ts",
   "resources/",
+  "resources/js-model-with-mixin.ext.js",
   "resources/js-model-with-mixin.schema.js",
-  "resources/js-model-with-mixin.schema.types.ts",
   "resources/ts-model-with-mixin.schema.ts",
-  "resources/ts-model-with-mixin.schema.types.ts",
   "traits/",
   "traits/js-mixin.schema.js",
-  "traits/js-mixin.schema.types.ts",
+  "traits/ts-mixin.ext.ts",
   "traits/ts-mixin.schema.ts",
-  "traits/ts-mixin.schema.types.ts",
 ]
 `;
 
 exports[`migrate-to-schema batch operation > handles mixed js and ts files correctly with proper type file extensions > mixed js/ts files 1`] = `
 {
-  "extensions/": "__dir__",
-  "extensions/js-model-with-mixin.js": "
+  "resources/": "__dir__",
+  "resources/js-model-with-mixin.ext.js": "
 import Model, { attr } from '@ember-data/model';
 import JsMixin from '../../mixins/js-mixin';
 
-// The following is a workaround for the fact that we can't properly do
-// declaration merging in .js files. If this is converted to a .ts file,
-// we can remove this and just use the declaration merging.
-/** @import { JsModelWithMixin } from 'test-app/data/resources/js-model-with-mixin.schema.types' */
-/** @type {{ new(): JsModelWithMixin }} */
-const Base = class {};
-export class JsModelWithMixinExtension extends Base {
+export class JsModelWithMixinExtension {
   get displayName() {
       return this.name + ' (JS)';
     }
-}
-
-/** @typedef {typeof JsModelWithMixinExtension} JsModelWithMixinExtensionSignature */",
-  "extensions/ts-mixin.ts": "
-import Mixin from '@ember/object/mixin';
-import { attr } from '@ember-data/model';
-
-import type { TsMixinTrait } from 'test-app/data/traits/ts-mixin.schema.types';
-
-export interface tsMixinExtension extends TsMixinTrait {}
-
-export const tsMixinExtension = {
-  toggleEnabled() {
-    this.set('isEnabled', !this.isEnabled);
-  }
-};",
-  "resources/": "__dir__",
+}",
   "resources/js-model-with-mixin.schema.js": "
-export const JsModelWithMixinSchema = {
+const JsModelWithMixinSchema = {
   'type': 'js-model-with-mixin',
   'legacy': true,
   'identity': {
@@ -701,18 +638,13 @@ export const JsModelWithMixinSchema = {
   'traits': [
     'js'
   ]
-};",
-  "resources/js-model-with-mixin.schema.types.ts": "
-import type { Type } from '@ember-data/core-types/symbols';
-import type { JsTrait } from 'test-app/data/traits/js.schema.types';
+};
 
-export interface JsModelWithMixin extends JsTrait {
-	readonly [Type]: 'js-model-with-mixin';
-	readonly name: string | null;
-}
-",
+export default JsModelWithMixinSchema;",
   "resources/ts-model-with-mixin.schema.ts": "
-export const TsModelWithMixinSchema = {
+import type { Type } from '@ember-data/core-types/symbols';
+import type { TsTrait } from 'test-app/data/traits/ts.schema';
+const TsModelWithMixinSchema = {
   'type': 'ts-model-with-mixin',
   'legacy': true,
   'identity': {
@@ -728,52 +660,260 @@ export const TsModelWithMixinSchema = {
   ],
   'traits': [
     'ts'
+  ],
+  'objectExtensions': [
+    'tsMixinExtension'
   ]
-};",
-  "resources/ts-model-with-mixin.schema.types.ts": "
-import type { Type } from '@ember-data/core-types/symbols';
-import type { TsTrait } from 'test-app/data/traits/ts.schema.types';
+} as const;
+
+export default TsModelWithMixinSchema;
 
 export interface TsModelWithMixin extends TsTrait {
-	readonly [Type]: 'ts-model-with-mixin';
-	readonly title: string | null;
-}
-",
+  readonly [Type]: 'ts-model-with-mixin';
+  readonly title: string | null;
+}",
   "traits/": "__dir__",
   "traits/js-mixin.schema.js": "
-export const jsMixinTrait = {
-  "name": "js-mixin",
-  "mode": "legacy",
-  "fields": [
+const JsMixinTrait = {
+  'name': 'js-mixin',
+  'mode': 'legacy',
+  'fields': [
     {
-      "name": "createdAt",
-      "kind": "attribute",
-      "type": "date"
+      'name': 'createdAt',
+      'kind': 'attribute',
+      'type': 'date'
     }
   ]
+};
+
+export default JsMixinTrait;",
+  "traits/ts-mixin.ext.ts": "
+import Mixin from '@ember/object/mixin';
+import { attr } from '@ember-data/model';
+
+import type { TsMixinTrait } from 'test-app/data/traits/ts-mixin.schema';
+
+export interface tsMixinExtension extends TsMixinTrait {}
+
+export const tsMixinExtension = {
+  toggleEnabled() {
+    this.set('isEnabled', !this.isEnabled);
+  }
 };",
-  "traits/js-mixin.schema.types.ts": "
-export interface JsMixinTrait {
-	createdAt: Date | null;
-}
-",
   "traits/ts-mixin.schema.ts": "
-export const tsMixinTrait = {
-  "name": "ts-mixin",
-  "mode": "legacy",
-  "fields": [
+const TsMixinTrait = {
+  'name': 'ts-mixin',
+  'mode': 'legacy',
+  'fields': [
     {
-      "name": "isEnabled",
-      "kind": "attribute",
-      "type": "boolean"
+      'name': 'isEnabled',
+      'kind': 'attribute',
+      'type': 'boolean'
     }
   ]
-};",
-  "traits/ts-mixin.schema.types.ts": "
+} as const;
+
+export default TsMixinTrait;
+
 export interface TsMixinTrait {
-	isEnabled: boolean | null;
+  isEnabled: boolean | null;
+}",
 }
-",
+`;
+
+exports[`migrate-to-schema batch operation > mixin with attributes only is ONLY referenced as a trait in a schema > contains_only_a_trait 1`] = `
+{
+  "resources/": "__dir__",
+  "resources/test-model.schema.ts": "
+import type { Type } from '@ember-data/core-types/symbols';
+import type { User } from 'test-app/data/resources/user.schema';
+import type { WorkstreamableTrait as Workstreamable } from 'test-app/data/traits/workstreamable.schema';
+import type { WorkstreamableTrait } from 'test-app/data/traits/workstreamable.schema';
+const TestModelSchema = {
+  'type': 'test-model',
+  'legacy': true,
+  'identity': {
+    'kind': '@id',
+    'name': 'id'
+  },
+  'fields': [
+    {
+      'kind': 'belongsTo',
+      'name': 'user',
+      'type': 'user',
+      'options': {
+        'async': false
+      }
+    },
+    {
+      'kind': 'belongsTo',
+      'name': 'workstreamable',
+      'type': 'workstreamable',
+      'options': {
+        'async': false
+      }
+    }
+  ],
+  'traits': [
+    'workstreamable'
+  ]
+} as const;
+
+export default TestModelSchema;
+
+export interface TestModel extends WorkstreamableTrait {
+  readonly [Type]: 'test-model';
+  readonly user: User | null;
+  readonly workstreamable: Workstreamable | null;
+}",
+  "resources/user.schema.ts": "
+import type { Type } from '@ember-data/core-types/symbols';
+const UserSchema = {
+  'type': 'user',
+  'legacy': true,
+  'identity': {
+    'kind': '@id',
+    'name': 'id'
+  },
+  'fields': [
+    {
+      'kind': 'attribute',
+      'name': 'name',
+      'type': 'string'
+    }
+  ]
+} as const;
+
+export default UserSchema;
+
+export interface User {
+  readonly [Type]: 'user';
+  readonly name: string | null;
+}",
+  "traits/": "__dir__",
+  "traits/workstreamable.schema.ts": "
+const WorkstreamableTrait = {
+  'name': 'workstreamable',
+  'mode': 'legacy',
+  'fields': [
+    {
+      'name': 'workstreamType',
+      'kind': 'attribute',
+      'type': 'string'
+    }
+  ]
+} as const;
+
+export default WorkstreamableTrait;
+
+export interface WorkstreamableTrait {
+  workstreamType: string | null;
+}",
+}
+`;
+
+exports[`migrate-to-schema batch operation > mixin with both attributes and methods only is referenced as a trait and an objectExtension > contains_both_extension_and_a_trait 1`] = `
+{
+  "resources/": "__dir__",
+  "resources/test-model.schema.ts": "
+import type { Type } from '@ember-data/core-types/symbols';
+import type { User } from 'test-app/data/resources/user.schema';
+import type { WorkstreamableTrait as Workstreamable } from 'test-app/data/traits/workstreamable.schema';
+import type { WorkstreamableTrait } from 'test-app/data/traits/workstreamable.schema';
+const TestModelSchema = {
+  'type': 'test-model',
+  'legacy': true,
+  'identity': {
+    'kind': '@id',
+    'name': 'id'
+  },
+  'fields': [
+    {
+      'kind': 'belongsTo',
+      'name': 'user',
+      'type': 'user',
+      'options': {
+        'async': false
+      }
+    },
+    {
+      'kind': 'belongsTo',
+      'name': 'workstreamable',
+      'type': 'workstreamable',
+      'options': {
+        'async': false
+      }
+    }
+  ],
+  'traits': [
+    'workstreamable'
+  ],
+  'objectExtensions': [
+    'workstreamableExtension'
+  ]
+} as const;
+
+export default TestModelSchema;
+
+export interface TestModel extends WorkstreamableTrait {
+  readonly [Type]: 'test-model';
+  readonly user: User | null;
+  readonly workstreamable: Workstreamable | null;
+}",
+  "resources/user.schema.ts": "
+import type { Type } from '@ember-data/core-types/symbols';
+const UserSchema = {
+  'type': 'user',
+  'legacy': true,
+  'identity': {
+    'kind': '@id',
+    'name': 'id'
+  },
+  'fields': [
+    {
+      'kind': 'attribute',
+      'name': 'name',
+      'type': 'string'
+    }
+  ]
+} as const;
+
+export default UserSchema;
+
+export interface User {
+  readonly [Type]: 'user';
+  readonly name: string | null;
+}",
+  "traits/": "__dir__",
+  "traits/workstreamable.ext.ts": "
+import Mixin from '@ember/object/mixin';
+import { attr } from '@ember-data/model';
+
+import type { WorkstreamableTrait } from 'test-app/data/traits/workstreamable.schema';
+
+export interface workstreamableExtension extends WorkstreamableTrait {}
+
+export const workstreamableExtension = {
+  imAnObjectExtensionNow() {}
+};",
+  "traits/workstreamable.schema.ts": "
+const WorkstreamableTrait = {
+  'name': 'workstreamable',
+  'mode': 'legacy',
+  'fields': [
+    {
+      'name': 'workstreamType',
+      'kind': 'attribute',
+      'type': 'string'
+    }
+  ]
+} as const;
+
+export default WorkstreamableTrait;
+
+export interface WorkstreamableTrait {
+  workstreamType: string | null;
+}",
 }
 `;
 
@@ -782,14 +922,11 @@ exports[`migrate-to-schema batch operation > places intermediate model extension
   "core/",
   "core/base-model-with-methods.js",
   "data/",
-  "data/extensions/",
-  "data/extensions/base-model-with-methods.js",
   "data/resources/",
   "data/resources/regular-model.schema.ts",
-  "data/resources/regular-model.schema.types.ts",
   "data/traits/",
+  "data/traits/base-model-with-methods.ext.js",
   "data/traits/base-model-with-methods.schema.js",
-  "data/traits/base-model-with-methods.schema.types.ts",
   "models/",
   "models/regular-model.ts",
 ]
@@ -797,8 +934,27 @@ exports[`migrate-to-schema batch operation > places intermediate model extension
 
 exports[`migrate-to-schema batch operation > places intermediate model extensions in extensionsDir not fallback directory > intermediate model extensions files 1`] = `
 {
-  "extensions/": "__dir__",
-  "extensions/base-model-with-methods.js": "
+  "resources/": "__dir__",
+  "resources/regular-model.schema.ts": "
+import type { Type } from '@ember-data/core-types/symbols';
+const RegularModelSchema = {
+  'type': 'fragment:regular-model',
+  'legacy': true,
+  'identity': null,
+  'fields': [],
+  'objectExtensions': [
+    'ember-object',
+    'fragment'
+  ]
+} as const;
+
+export default RegularModelSchema;
+
+export interface RegularModel {
+  readonly [Type]: 'regular-model';
+}",
+  "traits/": "__dir__",
+  "traits/base-model-with-methods.ext.js": "
 import Model, { attr } from '@ember-data/model';
 
 export class BaseModelWithMethodsExtension {
@@ -809,88 +965,36 @@ export class BaseModelWithMethodsExtension {
   someMethod() {
       return 'from base model';
     }
-}
-
-/** @typedef {typeof BaseModelWithMethodsExtension} BaseModelWithMethodsExtensionSignature */",
-  "resources/": "__dir__",
-  "resources/regular-model.schema.ts": "
-export const RegularModelSchema = {
-  'type': 'fragment:regular-model',
-  'legacy': true,
-  'identity': null,
-  'fields': [],
-  'objectExtensions': [
-    'ember-object',
-    'fragment'
-  ]
-};",
-  "resources/regular-model.schema.types.ts": "
-import type { Type } from '@ember-data/core-types/symbols';
-
-export interface RegularModel {
-	readonly [Type]: 'regular-model';
-}
-",
-  "traits/": "__dir__",
+}",
   "traits/base-model-with-methods.schema.js": "
-export const BaseModelWithMethodsTrait = {
-  "fields": [
+const BaseModelWithMethodsTrait = {
+  'fields': [
     {
-      "kind": "attribute",
-      "name": "baseField",
-      "type": "string"
+      'kind': 'attribute',
+      'name': 'baseField',
+      'type': 'string'
     }
   ]
-};",
-  "traits/base-model-with-methods.schema.types.ts": "
-import type { BelongsToReference, HasManyReference, Errors } from '@warp-drive/legacy/model/-private';
+};
 
-export interface BaseModelWithMethodsTrait {
-	id: string | null;
-	readonly baseField: string | null;
-	readonly isNew: boolean;
-	readonly hasDirtyAttributes: boolean;
-	readonly isDeleted: boolean;
-	readonly isSaving: boolean;
-	readonly isValid: boolean;
-	readonly isError: boolean;
-	readonly isLoaded: boolean;
-	readonly isEmpty: boolean;
-	save: (options?: Record<string, unknown>) => Promise<this>;
-	reload: (options?: Record<string, unknown>) => Promise<this>;
-	deleteRecord: () => void;
-	unloadRecord: () => void;
-	destroyRecord: (options?: Record<string, unknown>) => Promise<void>;
-	rollbackAttributes: () => void;
-	belongsTo: (propertyName: string) => BelongsToReference;
-	hasMany: (propertyName: string) => HasManyReference;
-	serialize: (options?: Record<string, unknown>) => unknown;
-	readonly errors: Errors;
-	readonly adapterError: Error | null;
-	readonly isReloading: boolean;
-}
-",
+export default BaseModelWithMethodsTrait;",
 }
 `;
 
 exports[`migrate-to-schema batch operation > processes intermediateModelPaths to generate traits from base model classes > intermediate models file structure 1`] = `
 [
-  "extensions/",
   "resources/",
   "resources/custom-select-option.schema.js",
-  "resources/custom-select-option.schema.types.ts",
   "traits/",
   "traits/base.schema.ts",
-  "traits/base.schema.types.ts",
   "traits/data-field.schema.ts",
-  "traits/data-field.schema.types.ts",
 ]
 `;
 
 exports[`migrate-to-schema batch operation > processes intermediateModelPaths to generate traits from base model classes > intermediate models resources 1`] = `
 {
   "custom-select-option.schema.js": "
-export const CustomSelectOptionSchema = {
+const CustomSelectOptionSchema = {
   'type': 'fragment:custom-select-option',
   'legacy': true,
   'identity': null,
@@ -899,97 +1003,92 @@ export const CustomSelectOptionSchema = {
     'ember-object',
     'fragment'
   ]
-};",
-  "custom-select-option.schema.types.ts": "
-import type { Type } from '@ember-data/core-types/symbols';
+};
 
-export interface CustomSelectOption {
-	readonly [Type]: 'custom-select-option';
-}
-",
+export default CustomSelectOptionSchema;",
 }
 `;
 
 exports[`migrate-to-schema batch operation > processes intermediateModelPaths to generate traits from base model classes > intermediate models traits 1`] = `
 {
   "base.schema.ts": "
-export const BaseTrait = {
-  "fields": []
-};",
-  "base.schema.types.ts": "
 import type { BelongsToReference, HasManyReference, Errors } from '@warp-drive/legacy/model/-private';
+const BaseTrait = {
+  'fields': []
+} as const;
+
+export default BaseTrait;
 
 export interface BaseTrait {
-	id: string | null;
-	readonly isNew: boolean;
-	readonly hasDirtyAttributes: boolean;
-	readonly isDeleted: boolean;
-	readonly isSaving: boolean;
-	readonly isValid: boolean;
-	readonly isError: boolean;
-	readonly isLoaded: boolean;
-	readonly isEmpty: boolean;
-	save: (options?: Record<string, unknown>) => Promise<this>;
-	reload: (options?: Record<string, unknown>) => Promise<this>;
-	deleteRecord: () => void;
-	unloadRecord: () => void;
-	destroyRecord: (options?: Record<string, unknown>) => Promise<void>;
-	rollbackAttributes: () => void;
-	belongsTo: (propertyName: string) => BelongsToReference;
-	hasMany: (propertyName: string) => HasManyReference;
-	serialize: (options?: Record<string, unknown>) => unknown;
-	readonly errors: Errors;
-	readonly adapterError: Error | null;
-	readonly isReloading: boolean;
-}
-",
+  id: string | null;
+  readonly isNew: boolean;
+  readonly hasDirtyAttributes: boolean;
+  readonly isDeleted: boolean;
+  readonly isSaving: boolean;
+  readonly isValid: boolean;
+  readonly isError: boolean;
+  readonly isLoaded: boolean;
+  readonly isEmpty: boolean;
+  save: (options?: Record<string, unknown>) => Promise<this>;
+  reload: (options?: Record<string, unknown>) => Promise<this>;
+  deleteRecord: () => void;
+  unloadRecord: () => void;
+  destroyRecord: (options?: Record<string, unknown>) => Promise<void>;
+  rollbackAttributes: () => void;
+  belongsTo: (propertyName: string) => BelongsToReference;
+  hasMany: (propertyName: string) => HasManyReference;
+  serialize: (options?: Record<string, unknown>) => unknown;
+  readonly errors: Errors;
+  readonly adapterError: Error | null;
+  readonly isReloading: boolean;
+}",
   "data-field.schema.ts": "
-export const DataFieldTrait = {
-  "fields": [
+import type { BelongsToReference, HasManyReference, Errors } from '@warp-drive/legacy/model/-private';
+const DataFieldTrait = {
+  'fields': [
     {
-      "kind": "attribute",
-      "name": "name",
-      "type": "string"
+      'kind': 'attribute',
+      'name': 'name',
+      'type': 'string'
     },
     {
-      "kind": "attribute",
-      "name": "sortOrder",
-      "type": "number"
+      'kind': 'attribute',
+      'name': 'sortOrder',
+      'type': 'number'
     }
   ],
-  "traits": [
-    "base-model"
+  'traits': [
+    'base-model'
   ]
-};",
-  "data-field.schema.types.ts": "
-import type { BelongsToReference, HasManyReference, Errors } from '@warp-drive/legacy/model/-private';
+} as const;
 
-export interface DataFieldTrait {
-	id: string | null;
-	readonly name: string | null;
-	readonly sortOrder: number | null;
-	readonly isNew: boolean;
-	readonly hasDirtyAttributes: boolean;
-	readonly isDeleted: boolean;
-	readonly isSaving: boolean;
-	readonly isValid: boolean;
-	readonly isError: boolean;
-	readonly isLoaded: boolean;
-	readonly isEmpty: boolean;
-	save: (options?: Record<string, unknown>) => Promise<this>;
-	reload: (options?: Record<string, unknown>) => Promise<this>;
-	deleteRecord: () => void;
-	unloadRecord: () => void;
-	destroyRecord: (options?: Record<string, unknown>) => Promise<void>;
-	rollbackAttributes: () => void;
-	belongsTo: (propertyName: string) => BelongsToReference;
-	hasMany: (propertyName: string) => HasManyReference;
-	serialize: (options?: Record<string, unknown>) => unknown;
-	readonly errors: Errors;
-	readonly adapterError: Error | null;
-	readonly isReloading: boolean;
-}
-",
+export default DataFieldTrait;
+
+export interface DataFieldTrait extends BaseModelTrait {
+  id: string | null;
+  readonly name: string | null;
+  readonly sortOrder: number | null;
+  readonly isNew: boolean;
+  readonly hasDirtyAttributes: boolean;
+  readonly isDeleted: boolean;
+  readonly isSaving: boolean;
+  readonly isValid: boolean;
+  readonly isError: boolean;
+  readonly isLoaded: boolean;
+  readonly isEmpty: boolean;
+  save: (options?: Record<string, unknown>) => Promise<this>;
+  reload: (options?: Record<string, unknown>) => Promise<this>;
+  deleteRecord: () => void;
+  unloadRecord: () => void;
+  destroyRecord: (options?: Record<string, unknown>) => Promise<void>;
+  rollbackAttributes: () => void;
+  belongsTo: (propertyName: string) => BelongsToReference;
+  hasMany: (propertyName: string) => HasManyReference;
+  serialize: (options?: Record<string, unknown>) => unknown;
+  readonly errors: Errors;
+  readonly adapterError: Error | null;
+  readonly isReloading: boolean;
+}",
 }
 `;
 
@@ -997,10 +1096,8 @@ exports[`migrate-to-schema batch operation > respects dryRun option and does not
 
 exports[`migrate-to-schema batch operation > respects models-only and mixins-only options > models-only file structure 1`] = `
 [
-  "extensions/",
   "resources/",
   "resources/user.schema.ts",
-  "resources/user.schema.types.ts",
   "traits/",
 ]
 `;
@@ -1009,10 +1106,13 @@ exports[`migrate-to-schema batch operation > skips mixin processing when no mode
 
 exports[`migrate-to-schema batch operation > typed model with multiline declarations 1`] = `
 {
-  "extensions/": "__dir__",
   "resources/": "__dir__",
   "resources/typed.schema.ts": "
-export const TypedSchema = {
+import type { Type } from '@ember-data/core-types/symbols';
+import type { User } from 'test-app/data/resources/user.schema';
+import type { Tag } from 'test-app/data/resources/tag.schema';
+import type { AsyncHasMany } from '@ember-data/model';
+const TypedSchema = {
   'type': 'typed',
   'legacy': true,
   'identity': {
@@ -1044,20 +1144,16 @@ export const TypedSchema = {
       }
     }
   ]
-};",
-  "resources/typed.schema.types.ts": "
-import type { Type } from '@ember-data/core-types/symbols';
-import type { User } from 'test-app/data/resources/user.schema.types';
-import type { Tag } from 'test-app/data/resources/tag.schema.types';
-import type { AsyncHasMany } from '@ember-data/model';
+} as const;
+
+export default TypedSchema;
 
 export interface Typed {
-	readonly [Type]: 'typed';
-	readonly name: string | null;
-	readonly owner: User | null;
-	readonly tags: AsyncHasMany<Tag>;
-}
-",
+  readonly [Type]: 'typed';
+  readonly name: string | null;
+  readonly owner: User | null;
+  readonly tags: AsyncHasMany<Tag>;
+}",
   "traits/": "__dir__",
 }
 `;

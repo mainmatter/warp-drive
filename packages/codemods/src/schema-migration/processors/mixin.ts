@@ -7,19 +7,19 @@ import type { TransformOptions } from '../config.js';
 import type { ExtractedType, PropertyInfo, SchemaFieldForType, TransformArtifact } from '../utils/ast-utils.js';
 import {
   createExtensionFromOriginalFile,
-  createTypeArtifact,
   debugLog,
   DEFAULT_EMBER_DATA_SOURCE,
   DEFAULT_MIXIN_SOURCE,
+  detectQuoteStyle,
   extractBaseName,
   extractCamelCaseName,
-  extractJSDocTypes,
   extractTypeFromMethod,
   extractTypesFromInterface,
   findAssociatedInterface,
   findDefaultExport,
   findEmberImportLocalName,
   generateExportStatement,
+  generateMergedTraitSchemaCode,
   generateTraitImport,
   getEmberDataImports,
   getExportedIdentifier,
@@ -49,7 +49,7 @@ import {
   NODE_KIND_VARIABLE_DECLARATOR,
   parseObjectPropertiesFromNode,
 } from '../utils/code-processing.js';
-import { mixinNameToKebab, pascalToKebab, TRAIT_SUFFIX_REGEX } from '../utils/string.js';
+import { mixinNameToKebab, pascalToKebab } from '../utils/string.js';
 
 /** Mixin.create() method name */
 const MIXIN_METHOD_CREATE = 'create';
@@ -152,7 +152,7 @@ function ensureResourceTypeFileExists(
 
   // Use resourcesDir if available, otherwise fall back to current directory
   const baseDir = options.resourcesDir || '.';
-  const resourceTypeFilePath = join(baseDir, `${modelType}.schema.types.ts`);
+  const resourceTypeFilePath = join(baseDir, `${modelType}.schema.ts`);
 
   // Check if the file exists
   if (!existsSync(resourceTypeFilePath)) {
@@ -166,7 +166,7 @@ function ensureResourceTypeFileExists(
       type: 'resource-type-stub',
       name: pascalCaseType,
       code: stubCode,
-      suggestedFileName: `${modelType}.schema.types.ts`,
+      suggestedFileName: `${modelType}.schema.ts`,
     });
 
     return true; // Stub was created
@@ -312,21 +312,11 @@ export function toArtifacts(filePath: string, source: string, options: Transform
 
     const artifacts: TransformArtifact[] = [];
     const fileExtension = getFileExtension(filePath);
+    const isTypeScript = fileExtension === '.ts';
 
     // Always generate trait type interface, even for empty mixins (needed for polymorphic relationships)
     const traitInterfaceName = `${mixinName.charAt(0).toUpperCase() + mixinName.slice(1)}Trait`;
 
-    // Always generate trait schema file, even for empty mixins (needed for polymorphic relationships)
-    const name = `${mixinName}Trait`;
-    const code = generateTraitCode(name, traitFields, extendedTraits);
-    artifacts.push({
-      type: 'trait',
-      name,
-      code,
-      suggestedFileName: `${baseName}.schema${fileExtension}`,
-    });
-
-    // Always generate trait type interface, even for empty mixins (needed for polymorphic relationships)
     // Convert trait fields to TypeScript interface properties
     const traitFieldTypes = traitFields.map((field) => {
       return {
@@ -335,10 +325,6 @@ export function toArtifacts(filePath: string, source: string, options: Transform
         readonly: false,
       };
     });
-
-    // Convert extended traits to extends clause format
-    const extendsClause =
-      extendedTraits.length > 0 ? extendedTraits.map((trait) => `${toPascalCase(trait)}Trait`).join(', ') : undefined;
 
     // Collect imports needed for the trait type interface
     const imports = new Set<string>();
@@ -363,9 +349,8 @@ export function toArtifacts(filePath: string, source: string, options: Transform
       }
     }
 
-    // Add model type imports
     if (modelTypes.size > 0) {
-      // Import each model type from its resource types file
+      // Import each model type from its resource schema file
       for (const modelType of modelTypes) {
         const pascalCaseType = toPascalCase(modelType);
 
@@ -375,34 +360,68 @@ export function toArtifacts(filePath: string, source: string, options: Transform
           ensureResourceTypeFileExists(modelType, options, artifacts);
         }
 
-        imports.add(`type { ${pascalCaseType} } from '${options.resourcesImport}/${modelType}.schema.types'`);
+        imports.add(`type { ${pascalCaseType} } from '${options.resourcesImport}/${modelType}.schema'`);
       }
     }
 
-    // Add imports for extended traits
     if (extendedTraits.length > 0) {
       for (const trait of extendedTraits) {
         imports.add(generateTraitImport(trait, options));
       }
     }
 
-    const traitTypeArtifact = createTypeArtifact(
+    // Build the trait schema object
+    const traitSchemaName = traitInterfaceName;
+    const traitInternalName = pascalToKebab(mixinName);
+    const traitSchemaObject: Record<string, unknown> = {
+      name: traitInternalName,
+      mode: 'legacy',
+      fields: traitFields.map((field) => {
+        const result: Record<string, unknown> = { name: field.name, kind: field.kind };
+        if (field.type) {
+          result.type = field.type;
+        }
+        if (field.options) {
+          result.options = field.options;
+        }
+        return result;
+      }),
+    };
+
+    // Add traits property if this trait extends other traits
+    if (extendedTraits.length > 0) {
+      traitSchemaObject.traits = extendedTraits;
+    }
+
+    // Detect quote style from source
+    const useSingleQuotes = detectQuoteStyle(source) === 'single';
+
+    // Generate merged trait schema code (schema + types in one file)
+    const mergedTraitSchemaCode = generateMergedTraitSchemaCode({
       baseName,
       traitInterfaceName,
-      traitFieldTypes,
-      'trait',
-      extendsClause,
-      imports.size > 0 ? Array.from(imports) : undefined,
-      '.ts' // Type files should always be .ts regardless of source file extension
-    );
-    artifacts.push(traitTypeArtifact);
+      schemaName: traitSchemaName,
+      schemaObject: traitSchemaObject,
+      properties: traitFieldTypes,
+      traits: extendedTraits,
+      imports,
+      isTypeScript,
+      useSingleQuotes,
+    });
+
+    artifacts.push({
+      type: 'trait',
+      name: traitSchemaName,
+      code: mergedTraitSchemaCode,
+      suggestedFileName: `${baseName}.schema${fileExtension}`,
+    });
 
     // Create extension artifact for mixins that have extension properties
     // For mixins, extensions should extend the trait interface
     if (extensionProperties.length > 0) {
       const traitImportPath = options?.traitsImport
-        ? `${options.traitsImport}/${baseName}.schema.types`
-        : `../traits/${baseName}.schema.types`;
+        ? `${options.traitsImport}/${baseName}.schema`
+        : `../traits/${baseName}.schema`;
       const extensionArtifact = createExtensionFromOriginalFile(
         filePath,
         source,
@@ -413,7 +432,9 @@ export function toArtifacts(filePath: string, source: string, options: Transform
         options,
         traitInterfaceName,
         traitImportPath,
-        'mixin' // Source is a mixin file
+        'mixin', // Source is a mixin file
+        undefined, // processImports - not used for mixins
+        'trait' // Extension context - trait extensions go to traitsDir
       );
 
       if (extensionArtifact) {
@@ -728,7 +749,7 @@ function processExtendedTraitsFromCalls(
  * Extract fields that can become trait fields (attr, hasMany, belongsTo)
  * and extension properties with TypeScript types
  */
-function extractTraitFields(
+export function extractTraitFields(
   root: SgNode,
   emberDataImports: Map<string, string>,
   mixinLocalName: string,
@@ -858,12 +879,9 @@ function extractTraitFields(
       // Extract the actual property name (remove quotes if present)
       fieldName = extractFieldNameFromKey(originalKey);
 
-      // Try to get type from associated interface first
+      // Try to get type from associated interface
       if (interfaceTypes.has(fieldName)) {
         typeInfo = interfaceTypes.get(fieldName);
-      } else {
-        // Look for JSDoc type annotations
-        typeInfo = extractJSDocTypes(property, options) ?? undefined;
       }
     }
 
@@ -985,39 +1003,6 @@ function generateLegacyTrait(
   }
 
   // Return only the export block; do not modify imports or other code
-  return generateExportStatement(traitName, legacyTrait);
-}
-
-/** Generate only the trait code block */
-function generateTraitCode(
-  traitName: string,
-  traitFields: Array<{ name: string; kind: string; type?: string; options?: Record<string, unknown> }>,
-  extendedTraits: string[] = []
-): string {
-  const traitInternalName = traitName.replace(TRAIT_SUFFIX_REGEX, '');
-  // Convert to dasherized format for the name property
-  const dasherizedName = pascalToKebab(traitInternalName);
-
-  const legacyTrait: Record<string, unknown> = {
-    name: dasherizedName,
-    mode: 'legacy',
-    fields: traitFields.map((field) => {
-      const result: Record<string, unknown> = { name: field.name, kind: field.kind };
-      if (field.type) {
-        result.type = field.type;
-      }
-      if (field.options) {
-        result.options = field.options;
-      }
-      return result;
-    }),
-  };
-
-  // Add traits property if this trait extends other traits
-  if (extendedTraits.length > 0) {
-    legacyTrait.traits = extendedTraits;
-  }
-
   return generateExportStatement(traitName, legacyTrait);
 }
 

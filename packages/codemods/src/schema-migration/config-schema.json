@@ -116,14 +116,6 @@
       "type": "string",
       "description": "Base import path for trait type imports (optional, defaults to relative imports)"
     },
-    "extensionsDir": {
-      "type": "string",
-      "description": "Directory to write generated Extensions to (required for all transforms)"
-    },
-    "extensionsImport": {
-      "type": "string",
-      "description": "Base import path for extension type imports (optional, defaults to relative imports)"
-    },
     "resourcesDir": {
       "type": "string",
       "description": "Directory to write generated Resources to (required for model-to-schema transforms)"

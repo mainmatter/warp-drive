@@ -19,13 +19,11 @@ describe('mixin-to-schema transform (artifacts)', () => {
       outputDir: join(tempDir, 'app/schemas'),
       resourcesDir: join(tempDir, 'app/data/resources'),
       traitsDir: join(tempDir, 'app/data/traits'),
-      extensionsDir: join(tempDir, 'app/data/extensions'),
       modelSourceDir: join(tempDir, 'app/models'),
       mixinSourceDir: join(tempDir, 'app/mixins'),
       appImportPrefix: 'test-app',
       resourcesImport: 'test-app/data/resources',
       traitsImport: 'test-app/data/traits',
-      extensionsImport: 'test-app/data/extensions',
       modelImportSource: 'test-app/models',
       mixinImportSource: 'test-app/mixins',
       emberDataImportSource: '@ember-data/model',
@@ -46,30 +44,21 @@ describe('mixin-to-schema transform (artifacts)', () => {
 export default Mixin.create({});`;
 
       const artifacts = toArtifacts('app/mixins/empty.js', input, options);
-      expect(artifacts).toHaveLength(2);
+      expect(artifacts).toHaveLength(1);
 
       const trait = artifacts.find((a) => a.type === 'trait');
       expect(trait).toMatchInlineSnapshot(`
         {
-          "code": "export const emptyTrait = {
-          "name": "empty",
-          "mode": "legacy",
-          "fields": []
-        };",
-          "name": "emptyTrait",
+          "code": "const EmptyTrait = {
+          'name': 'empty',
+          'mode': 'legacy',
+          'fields': []
+        };
+
+        export default EmptyTrait;",
+          "name": "EmptyTrait",
           "suggestedFileName": "empty.schema.js",
           "type": "trait",
-        }
-      `);
-      const traitType = artifacts.find((a) => a.type === 'trait-type');
-      expect(traitType).toMatchInlineSnapshot(`
-        {
-          "code": "export interface EmptyTrait {
-        }
-        ",
-          "name": "EmptyTrait",
-          "suggestedFileName": "empty.schema.types.ts",
-          "type": "trait-type",
         }
       `);
     });
@@ -87,60 +76,45 @@ export default Mixin.create({
 });`;
 
       const artifacts = toArtifacts('app/mixins/fileable.js', input, options);
-      expect(artifacts).toHaveLength(4);
+      expect(artifacts).toHaveLength(3); // trait, extension, and resource-type-stub for 'file'
 
       const trait = artifacts.find((a) => a.type === 'trait');
-      const traitType = artifacts.find((a) => a.type === 'trait-type');
-      const extension = artifacts.find((a) => a.type === 'extension');
+      const extension = artifacts.find((a) => a.type === 'trait-extension');
       expect(trait).toMatchInlineSnapshot(`
         {
-          "code": "export const fileableTrait = {
-          "name": "fileable",
-          "mode": "legacy",
-          "fields": [
+          "code": "const FileableTrait = {
+          'name': 'fileable',
+          'mode': 'legacy',
+          'fields': [
             {
-              "name": "files",
-              "kind": "hasMany",
-              "type": "file",
-              "options": {
-                "as": "fileable",
-                "async": false
+              'name': 'files',
+              'kind': 'hasMany',
+              'type': 'file',
+              'options': {
+                'as': 'fileable',
+                'async': false
               }
             },
             {
-              "name": "name",
-              "kind": "attribute",
-              "type": "string"
+              'name': 'name',
+              'kind': 'attribute',
+              'type': 'string'
             },
             {
-              "name": "isActive",
-              "kind": "attribute",
-              "type": "boolean",
-              "options": {
-                "defaultValue": false
+              'name': 'isActive',
+              'kind': 'attribute',
+              'type': 'boolean',
+              'options': {
+                'defaultValue': false
               }
             }
           ]
-        };",
-          "name": "fileableTrait",
+        };
+
+        export default FileableTrait;",
+          "name": "FileableTrait",
           "suggestedFileName": "fileable.schema.js",
           "type": "trait",
-        }
-      `);
-      expect(traitType).toMatchInlineSnapshot(`
-        {
-          "code": "import type { HasMany } from '@ember-data/model';
-        import type { File } from 'test-app/data/resources/file.schema.types';
-
-        export interface FileableTrait {
-        	files: HasMany<File>;
-        	name: string | null;
-        	isActive: boolean | null;
-        }
-        ",
-          "name": "FileableTrait",
-          "suggestedFileName": "fileable.schema.types.ts",
-          "type": "trait-type",
         }
       `);
       expect(extension).toMatchInlineSnapshot(`
@@ -153,8 +127,8 @@ export default Mixin.create({
           titleCaseName: computed('name', function () { return (this.name || '').toUpperCase(); })
         };",
           "name": "fileableExtension",
-          "suggestedFileName": "fileable.js",
-          "type": "extension",
+          "suggestedFileName": "fileable.ext.js",
+          "type": "trait-extension",
         }
       `);
     });
@@ -208,7 +182,8 @@ export default Mixin.create({
       expect(
         artifacts.map((a) => ({ type: a.type, name: a.name, suggestedFileName: a.suggestedFileName }))
       ).toMatchSnapshot('metadata');
-      expect(artifacts[0]?.code).toMatchSnapshot('code');
+      const extension = artifacts.find((a) => a.type === 'trait-extension');
+      expect(extension?.code).toMatchSnapshot('code');
     });
 
     it('preserves newlines and tabs in extension artifact properties without escaping', () => {
@@ -229,7 +204,8 @@ export default Mixin.create({
       expect(
         artifacts.map((a) => ({ type: a.type, name: a.name, suggestedFileName: a.suggestedFileName }))
       ).toMatchSnapshot('metadata');
-      expect(artifacts[0]?.code).toMatchSnapshot('code');
+      const extension = artifacts.find((a) => a.type === 'trait-extension');
+      expect(extension?.code).toMatchSnapshot('code');
     });
 
     it('collects the real fileable mixin shape into trait and extension artifacts', () => {
@@ -261,17 +237,15 @@ export default Mixin.create({
 });`;
 
       const artifacts = toArtifacts('apps/client/app/mixins/fileable.js', input, options);
-      expect(artifacts).toHaveLength(4); // Trait, trait-type, and extension artifacts
+      expect(artifacts).toHaveLength(3); // Trait, extension, and resource-type-stub for 'file'
       expect(
         artifacts.map((a) => ({ type: a.type, suggestedFileName: a.suggestedFileName, name: a.name }))
       ).toMatchSnapshot('artifact metadata');
 
       // Test generated code separately for better readability
       const trait = artifacts.find((a) => a.type === 'trait');
-      const traitType = artifacts.find((a) => a.type === 'trait-type');
-      const extension = artifacts.find((a) => a.type === 'extension');
+      const extension = artifacts.find((a) => a.type === 'trait-extension');
       expect(trait?.code).toMatchSnapshot('trait code');
-      expect(traitType?.code).toMatchSnapshot('trait-type code');
       expect(extension?.code).toMatchSnapshot('extension code');
     });
   });
@@ -427,7 +401,7 @@ export default Mixin.create({
   });
 
   describe('TypeScript type artifacts', () => {
-    it('generates trait-type artifact with empty interface for basic mixins', () => {
+    it('generates trait artifact with merged types for basic mixins', () => {
       const input = `import Mixin from '@ember/object/mixin';
 import { attr, hasMany } from '@ember-data/model';
 
@@ -439,16 +413,16 @@ export default Mixin.create({
 
       const artifacts = toArtifacts('app/mixins/fileable.js', input, options);
 
-      // Should have trait and trait-type artifacts (no extension if no computed/methods)
-      expect(artifacts).toHaveLength(3);
-      expect(artifacts.map((a) => a.type).sort()).toEqual(['resource-type-stub', 'trait', 'trait-type']);
+      // Should have trait and resource-type-stub for 'file' (no extension if no computed/methods)
+      expect(artifacts).toHaveLength(2);
+      expect(artifacts.map((a) => a.type).sort()).toEqual(['resource-type-stub', 'trait']);
 
-      const traitType = artifacts.find((a) => a.type === 'trait-type');
-      expect(traitType?.code).toMatchSnapshot('basic trait type interface');
-      expect(traitType?.suggestedFileName).toBe('fileable.schema.types.ts');
+      const trait = artifacts.find((a) => a.type === 'trait');
+      expect(trait?.code).toMatchSnapshot('basic trait type interface');
+      expect(trait?.suggestedFileName).toBe('fileable.schema.js');
     });
 
-    it('generates trait-type and extension artifacts when mixin has computed properties and methods', () => {
+    it('generates trait and extension artifacts when mixin has computed properties and methods', () => {
       const input = `import Mixin from '@ember/object/mixin';
 import { attr } from '@ember-data/model';
 import { computed } from '@ember/object';
@@ -467,20 +441,20 @@ export default Mixin.create({
 
       const artifacts = toArtifacts('app/mixins/nameable.js', input, options);
 
-      // Should have trait, extension, and trait-type artifacts (no extension-type needed)
-      expect(artifacts).toHaveLength(3);
-      expect(artifacts.map((a) => a.type).sort()).toEqual(['extension', 'trait', 'trait-type']);
+      // Should have trait and extension artifacts (types merged into trait)
+      expect(artifacts).toHaveLength(2);
+      expect(artifacts.map((a) => a.type).sort()).toEqual(['trait', 'trait-extension']);
 
-      const extension = artifacts.find((a) => a.type === 'extension');
-      const traitType = artifacts.find((a) => a.type === 'trait-type');
+      const extension = artifacts.find((a) => a.type === 'trait-extension');
+      const trait = artifacts.find((a) => a.type === 'trait');
 
-      expect(traitType?.code).toMatchSnapshot('mixin trait type interface');
+      expect(trait?.code).toMatchSnapshot('mixin trait type interface');
       expect(extension?.code).toMatchSnapshot('mixin extension code');
-      expect(traitType?.suggestedFileName).toBe('nameable.schema.types.ts');
-      expect(extension?.suggestedFileName).toBe('nameable.js');
+      expect(trait?.suggestedFileName).toBe('nameable.schema.js');
+      expect(extension?.suggestedFileName).toBe('nameable.ext.js');
     });
 
-    it('generates only trait-type artifact when mixin has only data fields', () => {
+    it('generates only trait artifact when mixin has only data fields', () => {
       const input = `import Mixin from '@ember/object/mixin';
 import { attr, belongsTo } from '@ember-data/model';
 
@@ -491,12 +465,12 @@ export default Mixin.create({
 
       const artifacts = toArtifacts('app/mixins/simple.js', input, options);
 
-      // Should have trait and trait-type only (no extension for data-only mixins)
-      expect(artifacts).toHaveLength(3);
-      expect(artifacts.map((a) => a.type).sort()).toEqual(['resource-type-stub', 'trait', 'trait-type']);
+      // Should have trait and resource-type-stub for 'user' (no extension for data-only mixins)
+      expect(artifacts).toHaveLength(2);
+      expect(artifacts.map((a) => a.type).sort()).toEqual(['resource-type-stub', 'trait']);
 
-      const traitType = artifacts.find((a) => a.type === 'trait-type');
-      expect(traitType?.code).toMatchSnapshot('data-only trait type interface');
+      const trait = artifacts.find((a) => a.type === 'trait');
+      expect(trait?.code).toMatchSnapshot('data-only trait type interface');
     });
 
     it('handles custom type mappings in mixin trait type interfaces', () => {
@@ -516,9 +490,9 @@ export default Mixin.create({
       };
 
       const artifacts = toArtifacts('app/mixins/typed.js', input, { ...options, typeMapping: customTypeMappings });
-      const traitType = artifacts.find((a) => a.type === 'trait-type');
+      const trait = artifacts.find((a) => a.type === 'trait');
 
-      expect(traitType?.code).toMatchSnapshot('mixin custom type mappings interface');
+      expect(trait?.code).toMatchSnapshot('mixin custom type mappings interface');
     });
   });
 
@@ -560,12 +534,10 @@ export default BaseModelMixin;
       expect(artifacts.length).toBeGreaterThan(0);
 
       const trait = artifacts.find((a) => a.type === 'trait');
-      const extension = artifacts.find((a) => a.type === 'extension');
-      const traitType = artifacts.find((a) => a.type === 'trait-type');
+      const extension = artifacts.find((a) => a.type === 'trait-extension');
 
       // Should have trait because it has @attr field and extended traits
       expect(trait).toBeDefined();
-      expect(traitType).toBeDefined();
 
       // Should have the attr field in trait
       expect(trait?.code).toContain('name');
@@ -619,11 +591,9 @@ export default BaseModelMixin;
 
       // Should not have trait (no @attr fields), but should have extension
       const trait = artifacts.find((a) => a.type === 'trait');
-      const extension = artifacts.find((a) => a.type === 'extension');
-      const traitType = artifacts.find((a) => a.type === 'trait-type');
+      const extension = artifacts.find((a) => a.type === 'trait-extension');
 
       expect(trait).toBeDefined(); // Has extended traits
-      expect(traitType).toBeDefined(); // Always generates type interface
 
       // Should have the extended traits in trait
       expect(trait?.code).toContain('base-model-date');
@@ -635,10 +605,6 @@ export default BaseModelMixin;
         expect(extension.code).toContain('_dtCache');
         expect(extension.code).toContain('_dtLastUpdated');
       }
-
-      // Should recognize extended traits in the type interface
-      expect(traitType?.code).toContain('BaseModelDateTrait');
-      expect(traitType?.code).toContain('PartialSaveableTrait');
     });
 
     it('handles nested TypeScript type casts', () => {
@@ -657,7 +623,7 @@ export default NestedCastMixin;
 
       expect(artifacts.length).toBeGreaterThan(0);
 
-      const extension = artifacts.find((a) => a.type === 'extension');
+      const extension = artifacts.find((a) => a.type === 'trait-extension');
       expect(extension).toBeDefined();
       expect(extension?.code).toContain('computedProp');
     });
@@ -703,24 +669,21 @@ export default Mixin.createWithMixins(BaseModelMixin, TimestampMixin, {
         appImportPrefix: 'test-app',
       });
 
-      // Should produce trait and type artifacts (no extension since no methods/computed properties)
-      expect(artifacts).toHaveLength(3);
+      // Should produce trait and resource-type-stub for 'file' (no extension since no methods/computed properties)
+      expect(artifacts).toHaveLength(2);
 
       const trait = artifacts.find((a) => a.type === 'trait');
-      const typeArtifact = artifacts.find((a) => a.type === 'trait-type');
 
       expect(trait).toBeDefined();
-      expect(typeArtifact).toBeDefined();
 
-      // Test that the trait includes the traits property
-      expect(trait?.code).toContain('"traits": [');
-      expect(trait?.code).toContain('"base-model"');
-      expect(trait?.code).toContain('"timestamp"');
-      expect(trait?.code).toContain('"name": "fileable"');
-      expect(trait?.code).toContain('"mode": "legacy"');
+      // Test that the trait includes the name and mode (uses single quotes in JS files)
+      expect(trait?.code).toContain("'name': 'fileable'");
+      expect(trait?.code).toContain("'mode': 'legacy'");
 
-      // Test that the type interface extends the parent trait interfaces
-      expect(typeArtifact?.code).toContain('extends BaseModelTrait, TimestampTrait');
+      // Test that the trait includes extended traits references
+      expect(trait?.code).toContain('base-model');
+      expect(trait?.code).toContain('timestamp');
+      expect(trait?.code).toContain("'traits':");
 
       // Test artifact metadata
       expect(
@@ -729,7 +692,6 @@ export default Mixin.createWithMixins(BaseModelMixin, TimestampMixin, {
 
       // Test generated code
       expect(trait?.code).toMatchSnapshot('inheritance trait code');
-      expect(typeArtifact?.code).toMatchSnapshot('inheritance type code');
     });
 
     it('produces trait with single extended trait', () => {
@@ -747,20 +709,14 @@ export default Mixin.createWithMixins(BaseModelMixin, {
       });
 
       const trait = artifacts.find((a) => a.type === 'trait');
-      const typeArtifact = artifacts.find((a) => a.type === 'trait-type');
 
       expect(trait).toBeDefined();
-      expect(typeArtifact).toBeDefined();
 
-      // Test that the trait includes the single trait
-      expect(trait?.code).toContain('"traits": [');
-      expect(trait?.code).toContain('"base-model"');
-
-      // Test that the type interface extends the single parent trait interface
-      expect(typeArtifact?.code).toContain('extends BaseModelTrait');
+      // Test that the trait references the extended trait
+      expect(trait?.code).toContain('base-model');
+      expect(trait?.code).toContain("'traits':");
 
       expect(trait?.code).toMatchSnapshot('single inheritance trait code');
-      expect(typeArtifact?.code).toMatchSnapshot('single inheritance type code');
     });
 
     it('produces trait without traits property when no inheritance', () => {
@@ -774,19 +730,12 @@ export default Mixin.create({
       const artifacts = toArtifacts('app/mixins/describable.js', input, options);
 
       const trait = artifacts.find((a) => a.type === 'trait');
-      const typeArtifact = artifacts.find((a) => a.type === 'trait-type');
 
       expect(trait).toBeDefined();
-      expect(typeArtifact).toBeDefined();
-
       // Test that the trait does NOT include the traits property
-      expect(trait?.code).not.toContain('"traits"');
-
-      // Test that the type interface does not extend anything
-      expect(typeArtifact?.code).not.toContain('extends');
+      expect(trait?.code).not.toContain("'traits':");
 
       expect(trait?.code).toMatchSnapshot('no inheritance trait code');
-      expect(typeArtifact?.code).toMatchSnapshot('no inheritance type code');
     });
   });
 
@@ -812,8 +761,8 @@ export default Mixin.create({
 
       const artifacts = toArtifacts('app/mixins/fileable.js', input, options);
 
-      // Should have trait, trait-type, and resource-type-stub artifacts
-      expect(artifacts).toHaveLength(4); // trait, trait-type, file stub, user stub
+      // Should have trait (with merged types) and resource-type-stub artifacts
+      expect(artifacts).toHaveLength(3); // trait, file stub, user stub
 
       // Find the resource type stub artifacts
       const stubArtifacts = artifacts.filter((a) => a.type === 'resource-type-stub');
@@ -821,13 +770,13 @@ export default Mixin.create({
 
       const fileStub = stubArtifacts.find((a) => a.name === 'File');
       expect(fileStub).toBeDefined();
-      expect(fileStub?.suggestedFileName).toBe('file.schema.types.ts');
+      expect(fileStub?.suggestedFileName).toBe('file.schema.ts');
       expect(fileStub?.code).toContain('export interface File');
       expect(fileStub?.code).toContain('// Stub interface for File - generated automatically');
 
       const userStub = stubArtifacts.find((a) => a.name === 'User');
       expect(userStub).toBeDefined();
-      expect(userStub?.suggestedFileName).toBe('user.schema.types.ts');
+      expect(userStub?.suggestedFileName).toBe('user.schema.ts');
       expect(userStub?.code).toContain('export interface User');
       expect(userStub?.code).toContain('// Stub interface for User - generated automatically');
     });
@@ -854,8 +803,8 @@ export default Mixin.create({
 
       const artifacts = toArtifacts('app/mixins/commentable.js', input, options);
 
-      // Should have trait, extension, trait-type, and multiple resource-type-stub artifacts
-      expect(artifacts.length).toBeGreaterThanOrEqual(4);
+      // Should have trait (with merged types) and multiple resource-type-stub artifacts
+      expect(artifacts.length).toBeGreaterThanOrEqual(4); // trait + 3 stubs
 
       // Find the resource type stub artifacts
       const stubArtifacts = artifacts.filter((a) => a.type === 'resource-type-stub');

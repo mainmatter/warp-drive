@@ -394,45 +394,6 @@ export function extractTypeFromMethod(methodNode: SgNode, options?: TransformOpt
 }
 
 /**
- * Look for JSDoc type annotations in object literal properties
- */
-export function extractJSDocTypes(propertyNode: SgNode, options?: TransformOptions): ExtractedType | null {
-  // Look for JSDoc comments preceding the property
-  const siblings = propertyNode.parent()?.children() ?? [];
-  const propertyIndex = siblings.indexOf(propertyNode);
-  const emberDataImportSource = options?.emberDataImportSource || DEFAULT_EMBER_DATA_SOURCE;
-
-  // Check previous siblings for JSDoc comments
-  for (let i = propertyIndex - 1; i >= 0; i--) {
-    const sibling = siblings[i];
-    if (!sibling) continue;
-
-    if (sibling.kind() === 'comment' && sibling.text().includes('/**')) {
-      const commentText = sibling.text();
-
-      // Extract @type annotations
-      const typeMatch = commentText.match(/@type\s*\{([^}]+)\}/);
-      if (typeMatch?.[1]) {
-        const typeText = typeMatch[1].trim();
-        debugLog(options, `Found JSDoc type: ${typeText}`);
-
-        return {
-          type: typeText,
-          imports: extractImportsFromType(typeText, emberDataImportSource),
-        };
-      }
-    }
-
-    // Stop at non-whitespace, non-comment content
-    if (sibling.kind() !== 'comment' && sibling.text().trim() !== '') {
-      break;
-    }
-  }
-
-  return null;
-}
-
-/**
  * Extract type information from an interface declaration
  */
 export function extractTypesFromInterface(

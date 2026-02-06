@@ -19,8 +19,6 @@ export interface ConfigOptions {
   resourcesImport?: string;
   traitsDir?: string;
   traitsImport?: string;
-  extensionsDir?: string;
-  extensionsImport?: string;
   resourcesDir?: string;
   typeMapping?: Record<string, string> | string;
   modelsOnly?: boolean;
@@ -167,12 +165,6 @@ export async function generateConfig(): Promise<ConfigOptions> {
         message: 'Directory to write generated Schemas to:',
         default: './schemas',
       },
-      {
-        type: 'input',
-        name: 'extensionsDir',
-        message: 'Directory to write generated Extensions to:',
-        default: './extensions',
-      },
     ]);
     Object.assign(answers, modelAnswers);
   }
@@ -185,13 +177,6 @@ export async function generateConfig(): Promise<ConfigOptions> {
         name: 'traitsDir',
         message: 'Directory to write generated trait schemas to:',
         default: './traits',
-      },
-      {
-        type: 'input',
-        name: 'extensionsDir',
-        message: 'Directory to write generated Extensions to (if not already set):',
-        default: (answers.extensionsDir as string) || './extensions',
-        when: !answers.extensionsDir,
       },
     ]);
     Object.assign(answers, mixinAnswers);
@@ -311,15 +296,9 @@ export function validateConfigForTransform(
     if (!config.resourcesDir) {
       errors.push('resourcesDir is required for model-to-schema transforms');
     }
-    if (!config.extensionsDir) {
-      errors.push('extensionsDir is required for model-to-schema transforms');
-    }
   } else if (transformType === 'mixin-to-schema') {
     if (!config.traitsDir) {
       errors.push('traitsDir is required for mixin-to-schema transforms');
-    }
-    if (!config.extensionsDir) {
-      errors.push('extensionsDir is required for mixin-to-schema transforms');
     }
   }
 
@@ -331,7 +310,6 @@ export function validateConfigForTransform(
  */
 const PATH_PROPERTIES: Array<keyof ConfigOptions> = [
   'traitsDir',
-  'extensionsDir',
   'resourcesDir',
   'modelSourceDir',
   'mixinSourceDir',

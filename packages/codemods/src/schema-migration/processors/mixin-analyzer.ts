@@ -171,13 +171,27 @@ function resolveLocalModuleImport(importPath: string, mixinSourceDir: string, lo
   return null;
 }
 
+export type connectedMixins = Set<string>;
+export type modelToMixinsMap = Map<string, connectedMixins>;
+
+export interface ModelMixinAnalysisResult {
+  /** Set of all mixin file paths connected to models (directly or transitively) */
+  connectedMixins: connectedMixins;
+  /** Map of model file paths to the set of mixin file paths they use */
+  modelToMixinsMap: modelToMixinsMap;
+}
+
 /**
  * Analyze which mixins are actually used by models (directly or transitively)
+ * Returns both the set of connected mixins and a map of model -> mixin relationships
  */
-export function analyzeModelMixinUsage(codemod: Codemod, options: FinalOptions): Set<string> {
+export function analyzeModelMixinUsage(codemod: Codemod, options: FinalOptions): ModelMixinAnalysisResult {
   const modelMixins = new Set<string>();
   const mixinDependencies = new Map<string, Set<string>>();
   const mixinFiles = Object.keys(codemod.input.mixins);
+
+  // Track which mixins each model uses directly
+  const modelToMixinsMap = new Map<string, Set<string>>();
 
   const logger = codemod.logger;
   logger.info(`🔍 Analyzing mixin usage relationships...`);
@@ -185,6 +199,8 @@ export function analyzeModelMixinUsage(codemod: Codemod, options: FinalOptions):
   // Analyze model files for direct mixin usage AND polymorphic relationships
   let modelsProcessed = 0;
   for (const [modelFile, modelInput] of codemod.input.models) {
+    const modelMixinsSet = new Set<string>();
+
     try {
       // Extract direct mixin imports (including from .extend() calls)
       const mixinsUsedByModel = extractMixinImports(modelInput.code, modelFile, logger, options);
@@ -194,6 +210,7 @@ export function analyzeModelMixinUsage(codemod: Codemod, options: FinalOptions):
 
       for (const mixinPath of mixinsUsedByModel) {
         modelMixins.add(mixinPath);
+        modelMixinsSet.add(mixinPath);
         logger.debug(`📋 Model ${modelFile} uses mixin ${mixinPath}`);
       }
 
@@ -212,6 +229,7 @@ export function analyzeModelMixinUsage(codemod: Codemod, options: FinalOptions):
       }
       for (const mixinPath of polymorphicMixins) {
         modelMixins.add(mixinPath);
+        modelMixinsSet.add(mixinPath);
         logger.info(`📋 Model ${modelFile} has polymorphic relationship to mixin ${mixinPath}`);
       }
 
@@ -219,6 +237,7 @@ export function analyzeModelMixinUsage(codemod: Codemod, options: FinalOptions):
       const typeOnlyMixins = extractTypeOnlyMixinReferences(modelInput.code, modelFile, mixinFiles, logger, options);
       for (const mixinPath of typeOnlyMixins) {
         modelMixins.add(mixinPath);
+        modelMixinsSet.add(mixinPath);
         logger.debug(`📋 Model ${modelFile} has type-only reference to mixin ${mixinPath}`);
       }
 
@@ -232,6 +251,11 @@ export function analyzeModelMixinUsage(codemod: Codemod, options: FinalOptions):
       }
     } catch (error) {
       logger.error(`❌ Error analyzing model ${modelFile}: ${String(error)}`);
+    }
+
+    // Store the mixins used by this model
+    if (modelMixinsSet.size > 0) {
+      modelToMixinsMap.set(modelFile, modelMixinsSet);
     }
   }
 
@@ -281,9 +305,13 @@ export function analyzeModelMixinUsage(codemod: Codemod, options: FinalOptions):
     for (const mixinPath of transitiveModelMixins) {
       logger.info(`   - ${mixinPath}`);
     }
+    logger.info(`📋 Model -> Mixins mapping:`);
+    for (const [modelFile, mixins] of modelToMixinsMap) {
+      logger.info(`   - ${modelFile}: ${[...mixins].join(', ')}`);
+    }
   }
 
-  return transitiveModelMixins;
+  return { connectedMixins: transitiveModelMixins, modelToMixinsMap };
 }
 
 /**

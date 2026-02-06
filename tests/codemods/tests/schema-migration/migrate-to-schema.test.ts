@@ -19,13 +19,11 @@ describe('migrate-to-schema batch operation', () => {
       outputDir: join(tempDir, 'app/schemas'),
       resourcesDir: join(tempDir, 'app/data/resources'),
       traitsDir: join(tempDir, 'app/data/traits'),
-      extensionsDir: join(tempDir, 'app/data/extensions'),
       modelSourceDir: join(tempDir, 'app/models'),
       mixinSourceDir: join(tempDir, 'app/mixins'),
       appImportPrefix: 'test-app',
       resourcesImport: 'test-app/data/resources',
       traitsImport: 'test-app/data/traits',
-      extensionsImport: 'test-app/data/extensions',
       modelImportSource: 'test-app/models',
       mixinImportSource: 'test-app/mixins',
       emberDataImportSource: '@ember-data/model',
@@ -567,6 +565,81 @@ export default Mixin.create({
     expect(collectFilesSnapshot(dataDir)).toMatchSnapshot('traits vs resources files');
   });
 
+  it('mixin with attributes only is ONLY referenced as a trait in a schema', async () => {
+    prepareFiles(tempDir, {
+      'app/models/test-model.ts': `
+import Model, { belongsTo } from '@ember-data/model';
+import WorkstreamableMixin from '../mixins/workstreamable';
+
+export default class TestModel extends Model.extend(WorkstreamableMixin) {
+  // This should be imported from resources (regular model)
+  @belongsTo('user', { async: false }) user;
+
+  // This should be imported from traits (exists as trait)
+  @belongsTo('workstreamable', { async: false }) workstreamable;
+}
+`,
+      'app/models/user.ts': `
+import Model, { attr } from '@ember-data/model';
+
+export default class User extends Model {
+  @attr('string') name;
+}
+`,
+      'app/mixins/workstreamable.ts': `
+import Mixin from '@ember/object/mixin';
+import { attr } from '@ember-data/model';
+
+export default Mixin.create({
+  workstreamType: attr('string')
+});
+`,
+    });
+
+    await runMigration(options);
+
+    const dataDir = join(tempDir, 'app/data');
+    expect(collectFilesSnapshot(dataDir)).toMatchSnapshot('contains_only_a_trait')
+  });
+
+  it('mixin with both attributes and methods only is referenced as a trait and an objectExtension', async () => {
+    prepareFiles(tempDir, {
+      'app/models/test-model.ts': `
+import Model, { belongsTo } from '@ember-data/model';
+import WorkstreamableMixin from '../mixins/workstreamable';
+
+export default class TestModel extends Model.extend(WorkstreamableMixin) {
+  // This should be imported from resources (regular model)
+  @belongsTo('user', { async: false }) user;
+
+  // This should be imported from traits (exists as trait)
+  @belongsTo('workstreamable', { async: false }) workstreamable;
+}
+`,
+      'app/models/user.ts': `
+import Model, { attr } from '@ember-data/model';
+
+export default class User extends Model {
+  @attr('string') name;
+}
+`,
+      'app/mixins/workstreamable.ts': `
+import Mixin from '@ember/object/mixin';
+import { attr } from '@ember-data/model';
+
+export default Mixin.create({
+  workstreamType: attr('string'),
+  imAnObjectExtensionNow() {},
+});
+`,
+    });
+
+    await runMigration(options);
+
+    const dataDir = join(tempDir, 'app/data');
+    expect(collectFilesSnapshot(dataDir)).toMatchSnapshot('contains_both_extension_and_a_trait')
+  });
+
   it('ensures type files are always .ts regardless of source file extension', async () => {
     prepareFiles(tempDir, {
       'app/models/js-model.js': `
@@ -699,11 +772,11 @@ export default class TestModel extends BaseModel {
     expect(collectFilesSnapshot(dataDir)['resources/typed.schema.ts']).toBeTruthy();
     expect(collectFilesSnapshot(dataDir)).toMatchInlineSnapshot(`
       {
-        "extensions/": "__dir__",
-        "extensions/typed.ts": "
+        "resources/": "__dir__",
+        "resources/typed.ext.ts": "
       import BaseModel from 'test-app/models/base-model';
 
-      import type { Typed } from 'test-app/data/resources/typed.schema.types';
+      import type { Typed } from 'test-app/data/resources/typed.schema';
 
       export interface TypedExtension extends Typed {}
 
@@ -718,9 +791,10 @@ export default class TestModel extends BaseModel {
       }
 
       export type TypedExtensionSignature = typeof TypedExtension;",
-        "resources/": "__dir__",
         "resources/typed.schema.ts": "
-      export const TypedSchema = {
+      import type { Type } from '@ember-data/core-types/symbols';
+      import type { StaticBaseModelTraitTrait } from 'test-app/data/traits/static-base-model-trait.schema';
+      const TypedSchema = {
         'type': 'typed',
         'legacy': true,
         'identity': {
@@ -734,15 +808,13 @@ export default class TestModel extends BaseModel {
         'objectExtensions': [
           'static-base-model-extension'
         ]
-      };",
-        "resources/typed.schema.types.ts": "
-      import type { Type } from '@ember-data/core-types/symbols';
-      import type { StaticBaseModelTraitTrait } from 'test-app/data/traits/static-base-model-trait.schema.types';
+      } as const;
+
+      export default TypedSchema;
 
       export interface Typed extends StaticBaseModelTraitTrait {
-      	readonly [Type]: 'typed';
-      }
-      ",
+        readonly [Type]: 'typed';
+      }",
         "traits/": "__dir__",
       }
     `);
@@ -775,11 +847,11 @@ export default class TestModel extends BaseModel {
     expect(collectFilesSnapshot(dataDir)['resources/typed.schema.ts']).toBeTruthy();
     expect(collectFilesSnapshot(dataDir)).toMatchInlineSnapshot(`
       {
-        "extensions/": "__dir__",
-        "extensions/typed.ts": "
+        "resources/": "__dir__",
+        "resources/typed.ext.ts": "
       import BaseModel from 'test-app/models/base-model.js';
 
-      import type { Typed } from 'test-app/data/resources/typed.schema.types';
+      import type { Typed } from 'test-app/data/resources/typed.schema';
 
       export interface TypedExtension extends Typed {}
 
@@ -794,9 +866,10 @@ export default class TestModel extends BaseModel {
       }
 
       export type TypedExtensionSignature = typeof TypedExtension;",
-        "resources/": "__dir__",
         "resources/typed.schema.ts": "
-      export const TypedSchema = {
+      import type { Type } from '@ember-data/core-types/symbols';
+      import type { StaticBaseModelTraitTrait } from 'test-app/data/traits/static-base-model-trait.schema';
+      const TypedSchema = {
         'type': 'typed',
         'legacy': true,
         'identity': {
@@ -810,15 +883,13 @@ export default class TestModel extends BaseModel {
         'objectExtensions': [
           'static-base-model-extension'
         ]
-      };",
-        "resources/typed.schema.types.ts": "
-      import type { Type } from '@ember-data/core-types/symbols';
-      import type { StaticBaseModelTraitTrait } from 'test-app/data/traits/static-base-model-trait.schema.types';
+      } as const;
+
+      export default TypedSchema;
 
       export interface Typed extends StaticBaseModelTraitTrait {
-      	readonly [Type]: 'typed';
-      }
-      ",
+        readonly [Type]: 'typed';
+      }",
         "traits/": "__dir__",
       }
     `);
@@ -857,10 +928,13 @@ export default class TestModel extends BaseModel {
     expect(collectFilesSnapshot(dataDir)['resources/typed.schema.ts']).toBeTruthy();
     expect(collectFilesSnapshot(dataDir)).toMatchInlineSnapshot(`
       {
-        "extensions/": "__dir__",
         "resources/": "__dir__",
         "resources/typed.schema.ts": "
-      export const TypedSchema = {
+      import type { Type } from '@ember-data/core-types/symbols';
+      import type { Framework } from 'test-app/data/resources/framework.schema';
+      import type { HasMany } from '@ember-data/model';
+      import type { StaticBaseModelTraitTrait } from 'test-app/data/traits/static-base-model-trait.schema';
+      const TypedSchema = {
         'type': 'typed',
         'legacy': true,
         'identity': {
@@ -899,21 +973,17 @@ export default class TestModel extends BaseModel {
         'objectExtensions': [
           'static-base-model-extension'
         ]
-      };",
-        "resources/typed.schema.types.ts": "
-      import type { Type } from '@ember-data/core-types/symbols';
-      import type { Framework } from 'test-app/data/resources/framework.schema.types';
-      import type { HasMany } from '@ember-data/model';
-      import type { StaticBaseModelTraitTrait } from 'test-app/data/traits/static-base-model-trait.schema.types';
+      } as const;
+
+      export default TypedSchema;
 
       export interface Typed extends StaticBaseModelTraitTrait {
-      	readonly [Type]: 'typed';
-      	readonly name: string | null;
-      	readonly description: string | null;
-      	readonly isForControlsAssessment: boolean | null;
-      	readonly frameworks: HasMany<Framework>;
-      }
-      ",
+        readonly [Type]: 'typed';
+        readonly name: string | null;
+        readonly description: string | null;
+        readonly isForControlsAssessment: boolean | null;
+        readonly frameworks: HasMany<Framework>;
+      }",
         "traits/": "__dir__",
       }
     `);
