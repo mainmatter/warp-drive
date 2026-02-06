@@ -7,7 +7,6 @@ import { extractBaseName, getLanguageFromPath } from '../utils/ast-utils.js';
 import {
   findCallExpressions,
   findDecorators,
-  findFileWithExtensions,
   findIdentifiersInArguments,
   findImportStatements,
   findObjectArguments,
@@ -17,7 +16,6 @@ import {
   getImportClause,
   getImportSourcePath,
   getNamedImportIdentifiers,
-  globPatternToRegex,
   isInsideDecorator,
   isPolymorphicRelationship,
   isTypeOnlyImport,
@@ -26,6 +24,7 @@ import {
   NODE_KIND_PROPERTY_IDENTIFIER,
 } from '../utils/code-processing.js';
 import type { Logger } from '../utils/logger.js';
+import { getImportSourceConfig, resolveImportPath, resolveRelativeImport } from '../utils/path-utils.js';
 import { removeQuoteChars } from '../utils/string.js';
 
 /** The 'extend' method name used in Ember's class extension pattern */
@@ -98,78 +97,10 @@ function findExtendCalls(root: SgNode): SgNode[] {
 }
 
 /**
- * Resolve a relative import path
+ * Check if a resolved path is within the mixin source directory
  */
-function resolveRelativeImport(
-  importPath: string,
-  currentFilePath: string,
-  mixinSourceDir: string,
-  logger: Logger
-): string | null {
-  const resolvedPath = resolve(dirname(currentFilePath), importPath);
-  const foundPath = findFileWithExtensions(resolvedPath);
-
-  if (foundPath && foundPath.startsWith(mixinSourceDir)) {
-    return foundPath;
-  }
-
-  return null;
-}
-
-/**
- * Resolve an external import using additional mixin sources
- */
-function resolveExternalImport(
-  importPath: string,
-  additionalSources: Array<{ pattern: string; dir: string }>,
-  logger: Logger
-): string | null {
-  logger.debug(
-    `📋 Trying to resolve external import '${importPath}' using ${additionalSources.length} additional sources`
-  );
-
-  for (const source of additionalSources) {
-    const patternRegex = globPatternToRegex(source.pattern);
-
-    logger.debug(`📋 Testing pattern '${source.pattern}' (regex: ${patternRegex}) against import '${importPath}'`);
-
-    const match = importPath.match(patternRegex);
-    if (match) {
-      // Replace the matched wildcards in the directory path
-      let targetDir = source.dir;
-      for (let i = 1; i < match.length; i++) {
-        targetDir = targetDir.replace('*', match[i]);
-      }
-
-      logger.debug(`📋 Trying to resolve external mixin '${importPath}' to '${targetDir}'`);
-
-      const foundPath = findFileWithExtensions(targetDir);
-      if (foundPath) {
-        logger.debug(`📋 Successfully resolved '${importPath}' to '${foundPath}'`);
-        return foundPath;
-      }
-    }
-  }
-
-  return null;
-}
-
-/**
- * Resolve a local module import (e.g., 'my-app/mixins/foo')
- */
-function resolveLocalModuleImport(importPath: string, mixinSourceDir: string, logger: Logger): string | null {
-  // For local module imports like 'my-app/mixins/foo', extract just the last part
-  const localMixinPath = importPath.includes('/mixins/') ? importPath.split('/mixins/')[1] : importPath;
-
-  const localResolvedPath = resolve(mixinSourceDir, localMixinPath);
-  const foundPath = findFileWithExtensions(localResolvedPath);
-
-  if (foundPath) {
-    logger.debug(`📋 Successfully resolved local mixin '${importPath}' to '${foundPath}'`);
-    return foundPath;
-  }
-
-  return null;
+function isInMixinSourceDir(resolvedPath: string | null, mixinSourceDir: string): boolean {
+  return !!resolvedPath && resolvedPath.startsWith(mixinSourceDir);
 }
 
 export type connectedMixins = Set<string>;
@@ -398,24 +329,21 @@ function resolveMixinPath(
 ): string | null {
   try {
     const mixinSourceDir = resolve(options.mixinSourceDir || './app/mixins');
+    const config = getImportSourceConfig('mixin', options);
 
-    // Handle relative paths
+    // Handle relative paths - must be within mixin source directory
     if (importPath.startsWith('.')) {
-      return resolveRelativeImport(importPath, currentFilePath, mixinSourceDir, logger);
-    }
-
-    // Handle external/package imports using additionalMixinSources
-    if (options.additionalMixinSources) {
-      const externalResolved = resolveExternalImport(importPath, options.additionalMixinSources, logger);
-      if (externalResolved) {
-        return externalResolved;
+      const resolved = resolveRelativeImport(importPath, currentFilePath, process.cwd());
+      if (isInMixinSourceDir(resolved, mixinSourceDir)) {
+        return resolved;
       }
+      return null;
     }
 
-    // If not found in external sources, try to resolve in local mixins directory
-    const localResolved = resolveLocalModuleImport(importPath, mixinSourceDir, logger);
-    if (localResolved) {
-      return localResolved;
+    // Use unified import path resolution
+    const resolved = resolveImportPath(importPath, config);
+    if (resolved) {
+      return resolved;
     }
 
     logger.debug(`📋 Could not resolve mixin path '${importPath}'`);

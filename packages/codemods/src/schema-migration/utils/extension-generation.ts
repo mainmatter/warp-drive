@@ -1,6 +1,6 @@
 import type { SgNode } from '@ast-grep/napi';
 import { parse } from '@ast-grep/napi';
-import { join,resolve } from 'path';
+import { join, resolve } from 'path';
 
 import type { TransformOptions } from '../config.js';
 import { debugLog, errorLog } from './logging.js';
@@ -281,6 +281,23 @@ function updateRelativeImportsForExtensions(
   }
 
   return result;
+}
+
+/**
+ * Append extension signature type alias to an extension artifact
+ * This creates a TypeScript type alias like: export type UserExtensionSignature = typeof UserExtension;
+ */
+export function appendExtensionSignatureType(extensionArtifact: TransformArtifact, entityName: string): void {
+  const isTypeScript = extensionArtifact.suggestedFileName.endsWith('.ts');
+  if (!isTypeScript) {
+    return;
+  }
+
+  const signatureType = `${entityName}ExtensionSignature`;
+  const className = `${entityName}Extension`;
+  const signatureCode = `export type ${signatureType} = typeof ${className};`;
+
+  extensionArtifact.code += '\n\n' + signatureCode;
 }
 
 /**

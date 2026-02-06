@@ -5,7 +5,7 @@
  * The implementation has been split into the following modules:
  *
  * - logging.ts: Debug and error logging utilities
- * - path-utils.ts: Path manipulation, case conversion, and file utilities
+ * - path-utils.ts: Path manipulation, case conversion, file utilities, and import resolution
  * - type-utils.ts: TypeScript type extraction and generation
  * - ast-helpers.ts: AST parsing, traversal, and object literal parsing
  * - schema-generation.ts: Schema field and artifact generation
@@ -27,9 +27,17 @@ export {
   getLanguageFromPath,
   getFileExtension,
   indentCode,
+  wildcardPatternToRegex,
+  replaceWildcardPattern,
+  resolveWithExtensions,
+  resolveRelativeImport,
+  resolveImportPath,
+  isImportFromSource,
+  getImportSourceConfig,
+  resolveImportPathWithFallbacks,
 } from './path-utils.js';
+export type { ImportSourceConfig } from './path-utils.js';
 
-// Re-export from type-utils
 export {
   DEFAULT_EMBER_DATA_SOURCE,
   DEFAULT_MIXIN_SOURCE,
@@ -101,7 +109,7 @@ export {
   isModelImportPath,
   isMixinImportPath,
   isSpecialMixinImport,
-  resolveRelativeImport,
+  resolveRelativeImport as resolveRelativeImportPath,
   isMixinFile,
   isModelFile,
   findEmberImportLocalName,
@@ -109,4 +117,8 @@ export {
 } from './import-utils.js';
 
 // Re-export from extension-generation
-export { generateExtensionCode, createExtensionFromOriginalFile } from './extension-generation.js';
+export {
+  generateExtensionCode,
+  createExtensionFromOriginalFile,
+  appendExtensionSignatureType,
+} from './extension-generation.js';

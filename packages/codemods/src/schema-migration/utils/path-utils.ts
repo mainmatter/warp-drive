@@ -1,6 +1,9 @@
+import { existsSync } from 'fs';
 import type { Lang } from '@ast-grep/napi';
 import { Lang as AstLang } from '@ast-grep/napi';
+import { dirname, resolve } from 'path';
 
+import type { TransformOptions } from '../config.js';
 import {
   capitalizeFirstLetter,
   capitalizeWord,
@@ -142,4 +145,199 @@ export function indentCode(code: string, indentLevel = 1): string {
       return line ? `${indent}${line}` : line;
     })
     .join('\n');
+}
+
+/**
+ * Configuration for import source resolution
+ */
+export interface ImportSourceConfig {
+  /** Primary import source prefix (e.g., '@ember-data/model') */
+  primarySource?: string;
+  /** Primary directory path (e.g., './app/models') */
+  primaryDir?: string;
+  /** Additional pattern-based sources */
+  additionalSources?: Array<{ pattern: string; dir: string }>;
+}
+
+/** Default file extensions to try when resolving imports */
+const DEFAULT_EXTENSIONS = ['.ts', '.js'];
+
+/**
+ * Convert a glob/wildcard pattern to a regex
+ * e.g., 'my-app/models/*' -> /^my-app/models\/(.*)$/
+ */
+export function wildcardPatternToRegex(pattern: string): RegExp {
+  return new RegExp('^' + pattern.replace(/\*/g, '(.*)') + '$');
+}
+
+/**
+ * Replace wildcards in a pattern with matched values
+ * e.g., pattern: 'my-app/models/*', value: 'my-app/models/user', replacement: './app/models/*'
+ *      -> './app/models/user'
+ */
+export function replaceWildcardPattern(pattern: string, value: string, replacement: string): string | null {
+  if (pattern.includes('*')) {
+    const regex = wildcardPatternToRegex(pattern);
+    const match = value.match(regex);
+
+    if (match) {
+      let result = replacement;
+      for (let i = 1; i < match.length; i++) {
+        result = result.replace('*', match[i]);
+      }
+      return result;
+    }
+    return null;
+  }
+
+  // For exact matches, simple replacement
+  return value.replace(pattern, replacement);
+}
+
+/**
+ * Try to find a file with various extensions
+ */
+export function resolveWithExtensions(basePath: string, extensions: string[] = DEFAULT_EXTENSIONS): string | null {
+  // First try the base path as-is
+  if (existsSync(basePath)) {
+    return basePath;
+  }
+
+  // Then try with extensions
+  for (const ext of extensions) {
+    const pathWithExt = `${basePath}${ext}`;
+    if (existsSync(pathWithExt)) {
+      return pathWithExt;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Resolve a relative import path to an absolute file path
+ */
+export function resolveRelativeImport(importPath: string, fromFile: string, baseDir: string): string | null {
+  if (!importPath.startsWith('./') && !importPath.startsWith('../')) {
+    return null;
+  }
+
+  try {
+    const fromDir = dirname(fromFile);
+    const resolvedPath = resolve(fromDir, importPath);
+    return resolveWithExtensions(resolvedPath);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve an import path using configured sources
+ * This handles both absolute imports (with patterns) and provides fallback logic
+ */
+export function resolveImportPath(
+  importPath: string,
+  config: ImportSourceConfig,
+  currentFilePath?: string,
+  baseDir?: string
+): string | null {
+  // Handle relative imports if file context is provided
+  if (currentFilePath && baseDir && (importPath.startsWith('./') || importPath.startsWith('../'))) {
+    const resolved = resolveRelativeImport(importPath, currentFilePath, baseDir);
+    if (resolved) {
+      return resolved;
+    }
+  }
+
+  // Try primary source first
+  if (config.primarySource && config.primaryDir) {
+    if (importPath.startsWith(config.primarySource)) {
+      const relativePath = importPath.replace(config.primarySource + '/', '');
+      const fullPath = resolve(config.primaryDir, relativePath);
+      const resolved = resolveWithExtensions(fullPath);
+      if (resolved) {
+        return resolved;
+      }
+    }
+  }
+
+  // Try additional sources with pattern matching
+  if (config.additionalSources) {
+    for (const source of config.additionalSources) {
+      const replacement = replaceWildcardPattern(source.pattern, importPath, source.dir);
+      if (replacement) {
+        const resolved = resolveWithExtensions(replacement);
+        if (resolved) {
+          return resolved;
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Check if an import path matches a configured source
+ */
+export function isImportFromSource(
+  importPath: string,
+  sourceType: 'model' | 'mixin',
+  options?: TransformOptions
+): boolean {
+  const config = getImportSourceConfig(sourceType, options);
+
+  // Check primary source
+  if (config.primarySource && importPath.startsWith(config.primarySource)) {
+    return true;
+  }
+
+  // Check additional sources
+  if (config.additionalSources) {
+    for (const source of config.additionalSources) {
+      if (importPath.startsWith(source.pattern.replace('/*', ''))) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Get import source configuration from TransformOptions
+ */
+export function getImportSourceConfig(sourceType: 'model' | 'mixin', options?: TransformOptions): ImportSourceConfig {
+  if (sourceType === 'model') {
+    return {
+      primarySource: options?.modelImportSource,
+      primaryDir: options?.modelSourceDir,
+      additionalSources: options?.additionalModelSources,
+    };
+  }
+
+  return {
+    primarySource: options?.mixinImportSource,
+    primaryDir: options?.mixinSourceDir,
+    additionalSources: options?.additionalMixinSources,
+  };
+}
+
+/**
+ * Resolve import paths using multiple source configurations
+ * Used when both model and mixin sources should be checked
+ */
+export function resolveImportPathWithFallbacks(
+  importPath: string,
+  configs: ImportSourceConfig[],
+  currentFilePath?: string,
+  baseDir?: string
+): string | null {
+  for (const config of configs) {
+    const resolved = resolveImportPath(importPath, config, currentFilePath, baseDir);
+    if (resolved) {
+      return resolved;
+    }
+  }
+  return null;
 }

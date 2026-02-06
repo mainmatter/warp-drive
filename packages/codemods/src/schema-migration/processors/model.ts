@@ -5,10 +5,10 @@ import { dirname, join, resolve } from 'path';
 import type { Filename, InputFile } from '../codemod.js';
 import type { TransformOptions } from '../config.js';
 import type { SchemaField, TransformArtifact } from '../utils/ast-utils.js';
+import { appendExtensionSignatureType, createExtensionFromOriginalFile } from '../utils/extension-generation.js';
 import {
   buildLegacySchemaObject,
   convertToSchemaField,
-  createExtensionFromOriginalFile,
   debugLog,
   DEFAULT_EMBER_DATA_SOURCE,
   errorLog,
@@ -59,6 +59,7 @@ import {
   NODE_KIND_METHOD_DEFINITION,
   NODE_KIND_PROPERTY_IDENTIFIER,
 } from '../utils/code-processing.js';
+import { replaceWildcardPattern } from '../utils/path-utils.js';
 import {
   MODEL_NAME_SUFFIX_REGEX,
   NAMED_TYPE_IMPORT_REGEX,
@@ -70,7 +71,6 @@ import {
   SCHEMA_SUFFIX_REGEX,
   toKebabCase,
   TRAILING_MODEL_SUFFIX_REGEX,
-  WILDCARD_REGEX,
 } from '../utils/string.js';
 import { extractTraitFields } from './mixin.js';
 
@@ -407,7 +407,7 @@ export default function transform(filePath: string, source: string, options: Tra
 /**
  * Resolve import path using additionalModelSources and additionalMixinSources patterns
  */
-function resolveImportPath(
+function resolveIntermediateImportPath(
   importPath: string,
   additionalModelSources: Array<{ pattern: string; dir: string }> | undefined,
   additionalMixinSources: Array<{ pattern: string; dir: string }> | undefined
@@ -415,59 +415,27 @@ function resolveImportPath(
   // Try additionalModelSources first
   if (additionalModelSources) {
     for (const source of additionalModelSources) {
-      if (matchesPattern(importPath, source.pattern)) {
-        return replacePattern(importPath, source.pattern, source.dir);
-      }
+        const replacement = replaceWildcardPattern(source.pattern, importPath, source.dir);
+        if (replacement) {
+          // Remove trailing wildcard from replacement to get base path
+          return replacement.replace(/\/?\*+$/, '');
+        }
     }
   }
 
   // Try additionalMixinSources
   if (additionalMixinSources) {
     for (const source of additionalMixinSources) {
-      if (matchesPattern(importPath, source.pattern)) {
-        return replacePattern(importPath, source.pattern, source.dir);
+        const replacement = replaceWildcardPattern(source.pattern, importPath, source.dir);
+        if (replacement) {
+          // Remove trailing wildcard from replacement to get base path
+          return replacement.replace(/\/?\*+$/, '');
       }
     }
   }
 
   // If no pattern matches, return the original path unchanged
-  // This means the config must provide explicit mappings for all intermediate model paths
   return importPath;
-}
-
-/**
- * Check if an import path matches a pattern (supports wildcards)
- */
-function matchesPattern(importPath: string, pattern: string): boolean {
-  if (pattern.includes('*')) {
-    // Convert wildcard pattern to regex
-    const regexPattern = pattern.replace(WILDCARD_REGEX, '.*');
-    const regex = new RegExp(`^${regexPattern}$`);
-    return regex.test(importPath);
-  }
-  // Exact match
-  return importPath === pattern;
-}
-
-/**
- * Replace pattern in import path with directory (supports wildcards)
- */
-function replacePattern(importPath: string, pattern: string, dir: string): string {
-  if (pattern.includes('*')) {
-    // For wildcard patterns, we need to extract the matched part and replace it
-    const regexPattern = pattern.replace(WILDCARD_REGEX, '(.*)');
-    const regex = new RegExp(`^${regexPattern}$`);
-    const match = importPath.match(regex);
-
-    if (match) {
-      // Replace the wildcard part with the directory
-      const wildcardPart = match[1]; // The part that matched the *
-      return dir.replace(WILDCARD_REGEX, wildcardPart);
-    }
-  }
-
-  // For exact matches, simple replacement
-  return importPath.replace(pattern, dir);
 }
 
 /**
@@ -506,7 +474,11 @@ export function processIntermediateModelsToTraits(
 
   for (const modelPath of intermediateModelPaths) {
     // Convert import path to file system path using additionalModelSources and additionalMixinSources
-    const relativePath = resolveImportPath(modelPath, additionalModelSources || [], additionalMixinSources || []);
+    const relativePath = resolveIntermediateImportPath(
+      modelPath,
+      additionalModelSources || [],
+      additionalMixinSources || []
+    );
     debugLog(options, `Resolved intermediate model path ${modelPath} to: ${relativePath}`);
     const possiblePaths = [`${relativePath}.ts`, `${relativePath}.js`];
 
@@ -759,17 +731,7 @@ function generateRegularModelArtifacts(
   );
   debugLog(options, `Extension properties: ${JSON.stringify(extensionProperties.map((p) => p.name))}`);
   if (extensionProperties.length > 0 && extensionArtifact) {
-    const extensionSignatureType = `${modelName}ExtensionSignature`;
-    const extensionClassName = `${modelName}Extension`;
-
-    // Check if the extension file is TypeScript
-    const isExtensionTypeScript = extensionArtifact.suggestedFileName.endsWith('.ts');
-
-    if (isExtensionTypeScript) {
-      // Generate TypeScript type alias
-      const signatureCode = `export type ${extensionSignatureType} = typeof ${extensionClassName};`;
-      extensionArtifact.code += '\n\n' + signatureCode;
-    }
+    appendExtensionSignatureType(extensionArtifact, modelName);
   }
 
   return artifacts;
@@ -1001,19 +963,7 @@ function generateIntermediateModelTraitArtifacts(
       artifacts.push(extensionArtifact);
 
       // Create extension signature type alias if there are extension properties
-      const extensionSignatureType = `${traitPascalName}ExtensionSignature`;
-      const extensionClassName = `${traitPascalName}Extension`;
-
-      // Check if the extension file is TypeScript
-      const isExtensionTypeScript = extensionArtifact.suggestedFileName.endsWith('.ts');
-
-      if (isExtensionTypeScript) {
-        // Generate TypeScript type alias
-        const signatureCode = `export type ${extensionSignatureType} = typeof ${extensionClassName};`;
-
-        // Add the signature type alias to the extension file
-        extensionArtifact.code += '\n\n' + signatureCode;
-      }
+      appendExtensionSignatureType(extensionArtifact, traitPascalName);
     }
   }
 
