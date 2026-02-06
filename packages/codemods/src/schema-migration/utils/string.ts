@@ -37,12 +37,6 @@ export const SURROUNDING_QUOTES_REGEX = /^['"]|['"]$/g;
 /** Matches quote characters (single or double) */
 export const QUOTE_CHARS_REGEX = /['"]/g;
 
-/** Matches single-quoted import statements */
-export const SINGLE_QUOTE_IMPORT_REGEX = /import\s+.*?from\s+'[^']+'/g;
-
-/** Matches double-quoted import statements */
-export const DOUBLE_QUOTE_IMPORT_REGEX = /import\s+.*?from\s+"[^"]+"/g;
-
 /** Matches /model at end of string for import path transformation */
 export const MODEL_SUFFIX_REGEX = /\/model$/;
 

@@ -4,12 +4,10 @@ import { Lang as AstLang } from '@ast-grep/napi';
 import {
   capitalizeFirstLetter,
   capitalizeWord,
-  DOUBLE_QUOTE_IMPORT_REGEX,
   FILE_EXTENSION_REGEX,
   KEBAB_TO_CAMEL_REGEX,
   kebabLetterToUpper,
   LEADING_HYPHEN_REGEX,
-  SINGLE_QUOTE_IMPORT_REGEX,
   SURROUNDING_QUOTES_REGEX,
   UPPERCASE_LETTER_REGEX,
   WHITESPACE_REGEX,
@@ -144,16 +142,4 @@ export function indentCode(code: string, indentLevel = 1): string {
       return line ? `${indent}${line}` : line;
     })
     .join('\n');
-}
-
-/**
- * Detect the predominant quote style in a source file
- */
-export function detectQuoteStyle(source: string): 'single' | 'double' {
-  // Count occurrences of single and double quotes in import/export statements
-  const singleQuoteMatches = source.match(SINGLE_QUOTE_IMPORT_REGEX) || [];
-  const doubleQuoteMatches = source.match(DOUBLE_QUOTE_IMPORT_REGEX) || [];
-
-  // Default to single quotes if more single quotes are found (or equal)
-  return singleQuoteMatches.length >= doubleQuoteMatches.length ? 'single' : 'double';
 }

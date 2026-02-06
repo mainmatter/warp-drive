@@ -2,7 +2,7 @@ import type { SgNode } from '@ast-grep/napi';
 
 import type { TransformOptions } from '../config.js';
 import { parseObjectLiteralFromNode } from './ast-helpers.js';
-import type { ExtensionContext} from './extension-generation.js';
+import type { ExtensionContext } from './extension-generation.js';
 import { getExtensionArtifactType } from './extension-generation.js';
 import { removeQuotes, toPascalCase } from './path-utils.js';
 import type { ExtractedType } from './type-utils.js';
@@ -73,19 +73,9 @@ export function getFieldKindFromDecorator(decoratorName: string): string {
  * Generate an export statement with a JSON object
  * Shared pattern used by both model-to-schema and mixin-to-schema transforms
  */
-export function generateExportStatement(
-  exportName: string,
-  jsonObject: Record<string, unknown>,
-  useSingleQuotes = false
-): string {
+export function generateExportStatement(exportName: string, jsonObject: Record<string, unknown>): string {
   // JSON.stringify handles quoting correctly - strings are quoted, booleans/numbers are not
-  let jsonString = JSON.stringify(jsonObject, null, 2);
-
-  // Convert all double quotes to single quotes if using single quotes
-  if (useSingleQuotes) {
-    // Replace all double quotes with single quotes, but be careful with escaped quotes
-    jsonString = jsonString.replace(/"([^"\\]*(\\.[^"\\]*)*)"/g, "'$1'");
-  }
+  const jsonString = JSON.stringify(jsonObject, null, 2);
 
   return `export const ${exportName} = ${jsonString};`;
 }
@@ -499,8 +489,6 @@ export interface MergedSchemaOptions {
   imports?: Set<string>;
   /** Whether this is a TypeScript file */
   isTypeScript: boolean;
-  /** Whether to use single quotes */
-  useSingleQuotes?: boolean;
   /** Transform options */
   options?: TransformOptions;
 }
@@ -543,15 +531,12 @@ function generateTypeScriptImports(imports: Set<string>): string {
 function generateSchemaDeclaration(
   schemaName: string,
   schemaObject: Record<string, unknown>,
-  isTypeScript: boolean,
-  useSingleQuotes: boolean
+  isTypeScript: boolean
 ): string {
   let jsonString = JSON.stringify(schemaObject, null, 2);
 
-  // Convert all double quotes to single quotes if using single quotes
-  if (useSingleQuotes) {
-    jsonString = jsonString.replace(/"([^"\\]*(\\.[^"\\]*)*)"/g, "'$1'");
-  }
+  // Always use single quotes
+  jsonString = jsonString.replace(/"([^"\\]*(\\.[^"\\]*)*)"/g, "'$1'");
 
   if (isTypeScript) {
     return `const ${schemaName} = ${jsonString} as const;`;
@@ -607,16 +592,7 @@ function generateInterfaceOnly(
  * This creates a single .schema.js or .schema.ts file with everything needed
  */
 export function generateMergedSchemaCode(opts: MergedSchemaOptions): string {
-  const {
-    schemaName,
-    interfaceName,
-    schemaObject,
-    properties,
-    traits = [],
-    imports = new Set(),
-    isTypeScript,
-    useSingleQuotes = false,
-  } = opts;
+  const { schemaName, interfaceName, schemaObject, properties, traits = [], imports = new Set(), isTypeScript } = opts;
 
   const sections: string[] = [];
 
@@ -629,7 +605,7 @@ export function generateMergedSchemaCode(opts: MergedSchemaOptions): string {
   }
 
   // Generate schema declaration
-  const schemaDecl = generateSchemaDeclaration(schemaName, schemaObject, isTypeScript, useSingleQuotes);
+  const schemaDecl = generateSchemaDeclaration(schemaName, schemaObject, isTypeScript);
   sections.push(schemaDecl);
 
   // Generate default export
@@ -678,8 +654,6 @@ export interface MergedTraitSchemaOptions {
   imports?: Set<string>;
   /** Whether this is a TypeScript file */
   isTypeScript: boolean;
-  /** Whether to use single quotes */
-  useSingleQuotes?: boolean;
 }
 
 /**
@@ -694,7 +668,6 @@ export function generateMergedTraitSchemaCode(opts: MergedTraitSchemaOptions): s
     traits = [],
     imports = new Set(),
     isTypeScript,
-    useSingleQuotes = false,
   } = opts;
 
   const sections: string[] = [];
@@ -708,7 +681,7 @@ export function generateMergedTraitSchemaCode(opts: MergedTraitSchemaOptions): s
   }
 
   // Generate schema declaration
-  const schemaDecl = generateSchemaDeclaration(schemaName, schemaObject, isTypeScript, useSingleQuotes);
+  const schemaDecl = generateSchemaDeclaration(schemaName, schemaObject, isTypeScript);
   sections.push(schemaDecl);
 
   // Generate default export

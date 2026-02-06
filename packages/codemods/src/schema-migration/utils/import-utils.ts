@@ -1021,15 +1021,9 @@ export function processImports(source: string, filePath: string, baseDir: string
         if (convertedImport) {
           debugLog(options, `Converted import: ${cleanSourceText} -> ${convertedImport}`);
 
-          // Replace the import with the converted import, preserving quote style
+          // Replace the import with the converted import, always using single quotes
           const originalImport = importNode.text();
-          // Detect the quote style used in the original import
-          const quoteChar = sourceText.includes("'") ? "'" : '"';
-          // Replace the path inside the quotes, preserving the quote style
-          let newImport = originalImport.replace(
-            createQuotedPathRegex(cleanSourceText),
-            `${quoteChar}${convertedImport}${quoteChar}`
-          );
+          let newImport = originalImport;
 
           // If the target is a .schema file, convert default imports to named imports
           // But only for TypeScript files (.ts), not JavaScript files (.js)

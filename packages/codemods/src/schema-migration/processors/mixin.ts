@@ -10,7 +10,6 @@ import {
   debugLog,
   DEFAULT_EMBER_DATA_SOURCE,
   DEFAULT_MIXIN_SOURCE,
-  detectQuoteStyle,
   extractBaseName,
   extractCamelCaseName,
   extractTypeFromMethod,
@@ -393,9 +392,6 @@ export function toArtifacts(filePath: string, source: string, options: Transform
       traitSchemaObject.traits = extendedTraits;
     }
 
-    // Detect quote style from source
-    const useSingleQuotes = detectQuoteStyle(source) === 'single';
-
     // Generate merged trait schema code (schema + types in one file)
     const mergedTraitSchemaCode = generateMergedTraitSchemaCode({
       baseName,
@@ -406,7 +402,6 @@ export function toArtifacts(filePath: string, source: string, options: Transform
       traits: extendedTraits,
       imports,
       isTypeScript,
-      useSingleQuotes,
     });
 
     artifacts.push({

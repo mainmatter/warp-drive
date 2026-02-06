@@ -11,7 +11,6 @@ import {
   createExtensionFromOriginalFile,
   debugLog,
   DEFAULT_EMBER_DATA_SOURCE,
-  detectQuoteStyle,
   errorLog,
   extractBaseName,
   extractCamelCaseName,
@@ -708,9 +707,6 @@ function generateRegularModelArtifacts(
   const schemaName = `${modelName}Schema`;
   const schemaObject = buildLegacySchemaObject(baseName, schemaFields, mixinTraits, mixinExtensions, isFragment);
 
-  // Detect quote style from source
-  const useSingleQuotes = detectQuoteStyle(source) === 'single';
-
   // Generate merged schema code (schema + types in one file)
   const mergedSchemaCode = generateMergedSchemaCode({
     baseName,
@@ -721,7 +717,6 @@ function generateRegularModelArtifacts(
     traits: mixinTraits,
     imports: schemaImports,
     isTypeScript,
-    useSingleQuotes,
     options,
   });
 
@@ -961,9 +956,6 @@ function generateIntermediateModelTraitArtifacts(
     traitSchemaObject.traits = mixinTraits;
   }
 
-  // Detect quote style from source
-  const useSingleQuotes = detectQuoteStyle(source) === 'single';
-
   // Generate merged trait schema code (schema + types in one file)
   const mergedTraitSchemaCode = generateMergedTraitSchemaCode({
     baseName: traitName,
@@ -974,7 +966,6 @@ function generateIntermediateModelTraitArtifacts(
     traits: mixinTraits,
     imports: traitImports,
     isTypeScript,
-    useSingleQuotes,
   });
 
   artifacts.push({
@@ -1987,10 +1978,7 @@ function generateLegacyResourceSchema(
 
   const legacySchema = buildLegacySchemaObject(type, schemaFields, mixinTraits, objectExtensions);
 
-  // Detect quote style from source if provided
-  const useSingleQuotes = source ? detectQuoteStyle(source) === 'single' : false;
-
-  return generateExportStatement(schemaName, legacySchema, useSingleQuotes);
+  return generateExportStatement(schemaName, legacySchema);
 }
 
 /**

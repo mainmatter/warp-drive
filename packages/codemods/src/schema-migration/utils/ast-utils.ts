@@ -27,7 +27,6 @@ export {
   getLanguageFromPath,
   getFileExtension,
   indentCode,
-  detectQuoteStyle,
 } from './path-utils.js';
 
 // Re-export from type-utils
