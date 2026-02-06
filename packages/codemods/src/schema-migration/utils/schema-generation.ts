@@ -121,7 +121,6 @@ export function buildLegacySchemaObject(
   mixinExtensions: string[],
   isFragment?: boolean
 ): Record<string, unknown> {
-  console.log(mixinExtensions, mixinTraits);
   const legacySchema: Record<string, unknown> = {
     type: isFragment ? `fragment:${type}` : type,
     legacy: true,

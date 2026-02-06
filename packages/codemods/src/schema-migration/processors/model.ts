@@ -317,7 +317,6 @@ function analyzeModelFile(filePath: string, source: string, options: TransformOp
       options
     );
 
-    console.log(mixinExtensions);
     // For simple model files that just extend from a base model without decorators,
     // we should still generate a basic schema even if there are no fields
     if (schemaFields.length === 0 && extensionProperties.length === 0 && mixinTraits.length === 0) {
@@ -643,8 +642,6 @@ function generateRegularModelArtifacts(
   options: TransformOptions
 ): TransformArtifact[] {
   const { schemaFields, extensionProperties, mixinTraits, mixinExtensions, modelName, baseName, isFragment } = analysis;
-
-  console.log(analysis);
   const artifacts: TransformArtifact[] = [];
 
   // Determine the file extension based on the original model file
