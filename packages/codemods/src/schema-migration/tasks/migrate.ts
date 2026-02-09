@@ -461,8 +461,8 @@ export async function runMigration(options: MigrateOptions): Promise<void> {
   const errors = modelResults.errors + mixinResults.errors;
 
   logger.info(`\n✅ Migration complete!`);
-  logger.info(`   📊 Processed: ${processed} files`);
-  logger.info(`   ⏭️  Skipped: ${skipped} files (not applicable for transformation)`);
+  logger.info(`   📊 Processed: ${processed}`);
+  logger.info(`   ⏭️  Skipped: ${skipped} - Mixins: ${mixinResults.skipped}, Models: ${modelResults.skipped}`);
   if (errors > 0) {
     logger.info(`   ❌ Errors: ${errors} files`);
   }
