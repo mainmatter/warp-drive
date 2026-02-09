@@ -456,7 +456,9 @@ export async function runMigration(options: MigrateOptions): Promise<void> {
   logger.info(`   📊 Processed: ${processed}`);
   logger.info(`   ⏭️  Skipped: ${skipped} - Mixins: ${mixinResults.skipped.length}, Models: ${modelResults.skipped.length}`);
 
-  logger.warn(`Skipped:\n   Mixins:\n ${mixinResults.skipped}\n   Models: ${modelResults.skipped}`);
+  if (options.verbose) {
+    logger.warn(`Skipped:\n   Mixins:\n ${mixinResults.skipped}\n   Models: ${modelResults.skipped}`);
+  }
   if (errors > 0) {
     logger.info(`   ❌ Errors: ${errors} files`);
   }
