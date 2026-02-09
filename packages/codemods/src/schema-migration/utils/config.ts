@@ -156,15 +156,9 @@ export async function generateConfig(): Promise<ConfigOptions> {
     const modelAnswers: Record<string, unknown> = await inquirer.prompt([
       {
         type: 'input',
-        name: 'baseModelImportPath',
-        message: 'Base model import path to recognize (leave empty for default):',
-        default: '',
-      },
-      {
-        type: 'input',
         name: 'resourcesDir',
         message: 'Directory to write generated Schemas to:',
-        default: './schemas',
+        default: './resources',
       },
     ]);
     Object.assign(answers, modelAnswers);
