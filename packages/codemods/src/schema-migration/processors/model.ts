@@ -2,18 +2,19 @@ import { parse, type SgNode } from '@ast-grep/napi';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { dirname, join, resolve } from 'path';
 
-import type { Filename, InputFile } from '../codemod.js';
+import type { Filename } from '../codemod.js';
 import type { TransformOptions } from '../config.js';
 import type { SchemaField, TransformArtifact } from '../utils/ast-utils.js';
-import { appendExtensionSignatureType, createExtensionFromOriginalFile } from '../utils/extension-generation.js';
 import {
   buildLegacySchemaObject,
+  buildTraitSchemaObject,
+  collectRelationshipImports,
+  collectTraitImports,
   convertToSchemaField,
   debugLog,
   DEFAULT_EMBER_DATA_SOURCE,
   errorLog,
   extractBaseName,
-  extractCamelCaseName,
   extractPascalCaseName,
   extractTypeFromDeclaration,
   extractTypeFromDecorator,
@@ -24,14 +25,13 @@ import {
   generateCommonWarpDriveImports,
   generateExportStatement,
   generateMergedSchemaCode,
-  generateMergedTraitSchemaCode,
-  generateTraitImport,
   getEmberDataImports,
   getExportedIdentifier,
   getFileExtension,
   getLanguageFromPath,
   getMixinImports,
   isModelFile,
+  mapFieldsToTypeProperties,
   mixinNameToTraitName,
   parseDecoratorArgumentsWithNodes,
   schemaFieldToTypeScriptType,
@@ -44,14 +44,12 @@ import {
   FILE_EXTENSION_TS,
   isJavaScriptFileByPath,
   NODE_KIND_ARGUMENTS,
-  NODE_KIND_ARROW_FUNCTION,
   NODE_KIND_CALL_EXPRESSION,
   NODE_KIND_CLASS_BODY,
   NODE_KIND_CLASS_DECLARATION,
   NODE_KIND_CLASS_HERITAGE,
   NODE_KIND_DECORATOR,
   NODE_KIND_FIELD_DEFINITION,
-  NODE_KIND_FUNCTION,
   NODE_KIND_IDENTIFIER,
   NODE_KIND_IMPORT_CLAUSE,
   NODE_KIND_IMPORT_STATEMENT,
@@ -59,6 +57,9 @@ import {
   NODE_KIND_METHOD_DEFINITION,
   NODE_KIND_PROPERTY_IDENTIFIER,
 } from '../utils/code-processing.js';
+import { appendExtensionSignatureType, createExtensionFromOriginalFile } from '../utils/extension-generation.js';
+import { isClassMethodSyntax } from '../utils/file-parser.js';
+import type { ParsedFile } from '../utils/file-parser.js';
 import { replaceWildcardPattern } from '../utils/path-utils.js';
 import {
   MODEL_NAME_SUFFIX_REGEX,
@@ -72,7 +73,6 @@ import {
   toKebabCase,
   TRAILING_MODEL_SUFFIX_REGEX,
 } from '../utils/string.js';
-import { extractTraitFields } from './mixin.js';
 
 /** Node types to try when searching for class field definitions */
 const FIELD_DEFINITION_NODE_TYPES = [
@@ -139,32 +139,6 @@ function getModelBaseProperties(): Array<{ name: string; type: string; readonly?
 }
 
 /**
- * Determines if an AST node represents object method syntax that doesn't need key: value format
- * This is used for class methods that become extension object methods
- */
-function isClassMethodSyntax(methodNode: SgNode): boolean {
-  const methodKind = methodNode.kind();
-
-  // Method definitions are always object methods in extensions
-  if (methodKind === NODE_KIND_METHOD_DEFINITION) {
-    return true;
-  }
-
-  // Field definitions that are functions/arrow functions
-  if (methodKind === NODE_KIND_FIELD_DEFINITION) {
-    const value = methodNode.field('value');
-    if (value) {
-      const valueKind = value.kind();
-      if (valueKind === NODE_KIND_ARROW_FUNCTION || valueKind === NODE_KIND_FUNCTION) {
-        return false; // These need key: value syntax in extensions
-      }
-    }
-  }
-
-  return false;
-}
-
-/**
  * Shared result type for model analysis
  */
 interface ModelAnalysisResult {
@@ -210,14 +184,10 @@ function getExpectedModelImportSources(options: TransformOptions): string[] {
 }
 
 /**
- * Shared function to analyze a model file and extract all necessary information
+ * Create an invalid ModelAnalysisResult with the given model/base name
  */
-function analyzeModelFile(filePath: string, source: string, options: TransformOptions): ModelAnalysisResult {
-  const lang = getLanguageFromPath(filePath);
-  const modelName = extractPascalCaseName(filePath);
-  const baseName = extractBaseName(filePath);
-
-  const invalidResult: ModelAnalysisResult = {
+function createInvalidResult(modelName: string, baseName: string): ModelAnalysisResult {
+  return {
     isValid: false,
     modelImportLocal: undefined,
     defaultExportNode: undefined,
@@ -228,103 +198,174 @@ function analyzeModelFile(filePath: string, source: string, options: TransformOp
     modelName,
     baseName,
   };
+}
+
+/**
+ * Result of AST validation for a model file
+ */
+interface ModelASTValidation {
+  root: SgNode;
+  modelImportLocal: string | null;
+  fragmentImportLocal: string | null;
+  defaultExportNode: SgNode;
+  isFragment: boolean;
+  emberDataImports: Map<string, string>;
+}
+
+/**
+ * Validate model AST: parse source, find imports, validate default export, check model class and fragment status.
+ * Returns null if the file is not a valid model.
+ */
+function validateModelAST(filePath: string, source: string, options: TransformOptions): ModelASTValidation | null {
+  const lang = getLanguageFromPath(filePath);
+  const ast = parse(lang, source);
+  const root = ast.root();
+
+  const expectedSources = getExpectedModelImportSources(options);
+  const modelImportLocal = findEmberImportLocalName(root, expectedSources, options, filePath, process.cwd());
+  debugLog(options, `DEBUG: Model import local: ${modelImportLocal}`);
+
+  const fragmentImportLocal = findEmberImportLocalName(
+    root,
+    [FRAGMENT_BASE_SOURCE],
+    options,
+    filePath,
+    process.cwd()
+  );
+  debugLog(options, `DEBUG: Fragment import local: ${fragmentImportLocal}`);
+
+  const defaultExportNode = findDefaultExport(root, options);
+  debugLog(options, `DEBUG: Default export node: ${defaultExportNode ? 'found' : 'not found'}`);
+  if (!defaultExportNode) {
+    return null;
+  }
+
+  let isValidModel = isModelClass(
+    defaultExportNode,
+    modelImportLocal ?? undefined,
+    fragmentImportLocal ?? undefined,
+    root,
+    options,
+    filePath
+  );
+
+  if (!isValidModel && options?.intermediateFragmentPaths && options.intermediateFragmentPaths.length > 0) {
+    const intermediateLocalNames = getIntermediateFragmentLocalNames(root, options, filePath);
+    for (const localName of intermediateLocalNames) {
+      if (isModelClass(defaultExportNode, undefined, localName, root, options, filePath)) {
+        isValidModel = true;
+        debugLog(options, `DEBUG: Valid model via intermediate fragment path: ${localName}`);
+        break;
+      }
+    }
+  }
+
+  debugLog(options, `DEBUG: Is valid model: ${isValidModel}`);
+  if (!isValidModel) {
+    debugLog(options, 'DEBUG: Not a valid model class, skipping');
+    return null;
+  }
+
+  let isFragment = false;
+  if (fragmentImportLocal) {
+    isFragment = isClassExtendingFragment(defaultExportNode, fragmentImportLocal, root, options, filePath);
+  }
+  if (!isFragment && options?.intermediateFragmentPaths && options.intermediateFragmentPaths.length > 0) {
+    const intermediateLocalNames = getIntermediateFragmentLocalNames(root, options, filePath);
+    for (const localName of intermediateLocalNames) {
+      if (isClassExtendingFragment(defaultExportNode, localName, root, options, filePath)) {
+        isFragment = true;
+        break;
+      }
+    }
+  }
+  debugLog(options, `DEBUG: Is Fragment class: ${isFragment}`);
+
+  const emberDataImports = getEmberDataImports(root, expectedSources, options);
+
+  return {
+    root,
+    modelImportLocal,
+    fragmentImportLocal,
+    defaultExportNode,
+    isFragment,
+    emberDataImports,
+  };
+}
+
+/**
+ * Extract heritage clause info (mixin traits and extensions) from the AST root.
+ */
+function extractHeritageInfo(
+  root: SgNode,
+  filePath: string,
+  options?: TransformOptions
+): { mixinTraits: string[]; mixinExtensions: string[] } {
+  const mixinTraits: string[] = [];
+  const mixinExtensions: string[] = [];
+
+  const classDeclaration = root.find({ rule: { kind: NODE_KIND_CLASS_DECLARATION } });
+  const heritageClause = classDeclaration?.find({ rule: { kind: NODE_KIND_CLASS_HERITAGE } });
+
+  if (heritageClause) {
+    const mixinImports = getMixinImports(root, options);
+    mixinTraits.push(...extractMixinTraits(heritageClause, root, mixinImports, options));
+
+    const mixinExts = extractMixinExtensions(heritageClause, root, mixinImports, filePath, options);
+    mixinExtensions.push(...mixinExts);
+
+    if (options?.intermediateModelPaths && options.intermediateModelPaths.length > 0) {
+      const intermediateTraits = extractIntermediateModelTraits(
+        heritageClause,
+        root,
+        options.intermediateModelPaths,
+        options
+      );
+      mixinTraits.push(...intermediateTraits);
+    }
+
+    if (options?.baseModel?.import) {
+      const baseModelLocalName = findEmberImportLocalName(
+        root,
+        [options.baseModel.import],
+        options,
+        undefined,
+        process.cwd()
+      );
+      if (baseModelLocalName && heritageClause.text().includes(baseModelLocalName)) {
+        if (options.baseModel.trait) {
+          mixinTraits.push(options.baseModel.trait);
+        }
+        if (options.baseModel.extension) {
+          mixinExtensions.push(options.baseModel.extension);
+        }
+      }
+    }
+  }
+
+  return { mixinTraits: [...new Set(mixinTraits)], mixinExtensions };
+}
+
+/**
+ * Shared function to analyze a model file and extract all necessary information
+ */
+function analyzeModelFile(filePath: string, source: string, options: TransformOptions): ModelAnalysisResult {
+  const modelName = extractPascalCaseName(filePath);
+  const baseName = extractBaseName(filePath);
 
   try {
-    const ast = parse(lang, source);
-    const root = ast.root();
-
-    // Verify this is an ember model file we should consider
-    // Include both the configured source and common WarpDrive sources
-    const expectedSources = getExpectedModelImportSources(options);
-    const modelImportLocal = findEmberImportLocalName(root, expectedSources, options, filePath, process.cwd());
-    debugLog(options, `DEBUG: Model import local: ${modelImportLocal}`);
-
-    // Also check specifically for Fragment base class import
-    const fragmentImportLocal = findEmberImportLocalName(
-      root,
-      [FRAGMENT_BASE_SOURCE],
-      options,
-      filePath,
-      process.cwd()
-    );
-    debugLog(options, `DEBUG: Fragment import local: ${fragmentImportLocal}`);
-
-    // Validate there is a default export extending the model
-    const defaultExportNode = findDefaultExport(root, options);
-    debugLog(options, `DEBUG: Default export node: ${defaultExportNode ? 'found' : 'not found'}`);
-    if (!defaultExportNode) {
-      return invalidResult;
+    const validation = validateModelAST(filePath, source, options);
+    if (!validation) {
+      return createInvalidResult(modelName, baseName);
     }
 
-    // Check if this is a valid model class (either with EmberData decorators or extending intermediate models)
-    // Also accept classes extending Fragment or intermediate fragments
-    let isValidModel = isModelClass(
-      defaultExportNode,
-      modelImportLocal ?? undefined,
-      fragmentImportLocal ?? undefined,
-      root,
-      options,
-      filePath
-    );
-
-    // If not valid yet, check if it extends an intermediate fragment path
-    if (!isValidModel && options?.intermediateFragmentPaths && options.intermediateFragmentPaths.length > 0) {
-      const intermediateLocalNames = getIntermediateFragmentLocalNames(root, options, filePath);
-      for (const localName of intermediateLocalNames) {
-        if (isModelClass(defaultExportNode, undefined, localName, root, options, filePath)) {
-          isValidModel = true;
-          debugLog(options, `DEBUG: Valid model via intermediate fragment path: ${localName}`);
-          break;
-        }
-      }
-    }
-
-    debugLog(options, `DEBUG: Is valid model: ${isValidModel}`);
-    if (!isValidModel) {
-      debugLog(options, 'DEBUG: Not a valid model class, skipping');
-      return invalidResult;
-    }
-
-    // Determine if this is a Fragment class (extends Fragment rather than Model)
-    // This can be either:
-    // 1. Direct Fragment import and extends Fragment
-    // 2. Extends an intermediate fragment path (even without direct Fragment import)
-    let isFragment = false;
-    if (fragmentImportLocal) {
-      isFragment = isClassExtendingFragment(defaultExportNode, fragmentImportLocal, root, options, filePath);
-    }
-    // Also check if it extends an intermediate fragment path (even without Fragment import)
-    if (!isFragment && options?.intermediateFragmentPaths && options.intermediateFragmentPaths.length > 0) {
-      const intermediateLocalNames = getIntermediateFragmentLocalNames(root, options, filePath);
-      for (const localName of intermediateLocalNames) {
-        if (isClassExtendingFragment(defaultExportNode, localName, root, options, filePath)) {
-          isFragment = true;
-          break;
-        }
-      }
-    }
-    debugLog(options, `DEBUG: Is Fragment class: ${isFragment}`);
-
-    // Get the valid EmberData decorator imports for this file
-    const emberDataImports = getEmberDataImports(root, expectedSources, options);
+    const { root, modelImportLocal, defaultExportNode, isFragment, emberDataImports } = validation;
 
     // Extract schema fields and extension properties from the class body
-    const { schemaFields, extensionProperties, mixinTraits, mixinExtensions } = extractModelFields(
-      root,
-      emberDataImports,
-      filePath,
-      options
-    );
+    const { schemaFields, extensionProperties } = extractModelFields(root, emberDataImports, filePath, options);
 
-    // For simple model files that just extend from a base model without decorators,
-    // we should still generate a basic schema even if there are no fields
-    if (schemaFields.length === 0 && extensionProperties.length === 0 && mixinTraits.length === 0) {
-      debugLog(
-        options,
-        'DEBUG: No schema fields, extension properties, or mixin traits found, but continuing for simple model files'
-      );
-      // Don't return invalidResult here - let the processing continue
-    }
+    // Extract heritage info (mixin traits and extensions)
+    const { mixinTraits, mixinExtensions } = extractHeritageInfo(root, filePath, options);
 
     debugLog(
       options,
@@ -344,7 +385,7 @@ function analyzeModelFile(filePath: string, source: string, options: TransformOp
     };
   } catch (error) {
     debugLog(options, `DEBUG: Error analyzing model file: ${String(error)}`);
-    return invalidResult;
+    return createInvalidResult(modelName, baseName);
   }
 }
 
@@ -415,36 +456,27 @@ function resolveIntermediateImportPath(
   // Try additionalModelSources first
   if (additionalModelSources) {
     for (const source of additionalModelSources) {
-        const replacement = replaceWildcardPattern(source.pattern, importPath, source.dir);
-        if (replacement) {
-          // Remove trailing wildcard from replacement to get base path
-          return replacement.replace(/\/?\*+$/, '');
-        }
+      const replacement = replaceWildcardPattern(source.pattern, importPath, source.dir);
+      if (replacement) {
+        // Remove trailing wildcard from replacement to get base path
+        return replacement.replace(/\/?\*+$/, '');
+      }
     }
   }
 
   // Try additionalMixinSources
   if (additionalMixinSources) {
     for (const source of additionalMixinSources) {
-        const replacement = replaceWildcardPattern(source.pattern, importPath, source.dir);
-        if (replacement) {
-          // Remove trailing wildcard from replacement to get base path
-          return replacement.replace(/\/?\*+$/, '');
+      const replacement = replaceWildcardPattern(source.pattern, importPath, source.dir);
+      if (replacement) {
+        // Remove trailing wildcard from replacement to get base path
+        return replacement.replace(/\/?\*+$/, '');
       }
     }
   }
 
   // If no pattern matches, return the original path unchanged
   return importPath;
-}
-
-/**
- * Check if a model file will produce an extension artifact
- */
-export function willModelHaveExtension(filePath: string, source: string, options: TransformOptions): boolean {
-  const analysis = analyzeModelFile(filePath, source, options);
-  // A model has an extension if it has extension properties (computed props, methods, etc.)
-  return analysis.isValid && analysis.extensionProperties.length > 0;
 }
 
 /**
@@ -629,51 +661,13 @@ function generateRegularModelArtifacts(
       type: `'${toKebabCase(baseName)}'`,
       readonly: true,
     },
-    ...schemaFields.map((field) => {
-      return {
-        name: field.name,
-        type: schemaFieldToTypeScriptType(field, options),
-        readonly: true,
-        comment: field.comment,
-      };
-    }),
+    ...mapFieldsToTypeProperties(schemaFields, options),
   ];
 
-  // Collect schema field types
   const commonImports = generateCommonWarpDriveImports(options);
   schemaImports.add(commonImports.typeImport);
-
-  // Add any specific imports needed by field types
-  schemaFields.forEach((field) => {
-    if (field.kind === 'belongsTo' || field.kind === 'hasMany') {
-      if (field.type && field.type !== baseName) {
-        const typeName = toPascalCase(field.type);
-
-        // Use dynamic logic to determine if this should be imported from traits or resources
-        schemaImports.add(transformModelToResourceImport(field.type, typeName, options));
-
-        // Add HasMany type imports for hasMany relationships
-        if (field.kind === 'hasMany') {
-          const isAsync = field.options && field.options.async === true;
-          if (isAsync) {
-            schemaImports.add(commonImports.asyncHasManyImport);
-          } else {
-            schemaImports.add(commonImports.hasManyImport);
-          }
-        }
-      }
-    }
-  });
-
-  // Add imports for trait interfaces
-  if (mixinTraits.length > 0) {
-    mixinTraits.forEach((trait) => {
-      // Import trait type - use configured path or default to relative
-      debugLog(options, `Generating trait import for ${trait}: traitsImport = ${options?.traitsImport}`);
-      const traitImport = generateTraitImport(trait, options);
-      schemaImports.add(traitImport);
-    });
-  }
+  collectRelationshipImports(schemaFields, baseName, schemaImports, options);
+  collectTraitImports(mixinTraits, schemaImports, options);
 
   // Build the schema object
   const schemaName = `${modelName}Schema`;
@@ -710,13 +704,12 @@ function generateRegularModelArtifacts(
     baseName,
     `${modelName}Extension`,
     extensionProperties,
-    analysis.defaultExportNode ?? null,
     options,
     modelInterfaceName,
     modelImportPath,
-    'model', // Source is a model file
-    undefined, // processImports - not used for models
-    'resource' // Extension context - resource extensions go to resourcesDir
+    'model',
+    undefined,
+    'resource'
   );
 
   debugLog(options, `Extension artifact created: ${!!extensionArtifact}`);
@@ -737,18 +730,72 @@ function generateRegularModelArtifacts(
   return artifacts;
 }
 
-export function toArtifacts(filePath: string, source: string, options: TransformOptions): TransformArtifact[] {
-  debugLog(options, `=== DEBUG: Processing ${filePath} ===`);
+export function toArtifacts(parsedFile: ParsedFile, options: TransformOptions): TransformArtifact[] {
+  debugLog(options, `=== DEBUG: Processing ${parsedFile.path} ===`);
 
-  const analysis = analyzeModelFile(filePath, source, options);
-
+  const analysis = analyzeModelFromParsed(parsedFile, options);
   if (!analysis.isValid) {
     debugLog(options, 'Model analysis failed, skipping artifact generation');
     return [];
   }
+  return generateRegularModelArtifacts(parsedFile.path, parsedFile.source, analysis, options);
+}
 
-  // Use the shared artifact generation function for regular models
-  return generateRegularModelArtifacts(filePath, source, analysis, options);
+/**
+ * Analyze a model using pre-parsed data for fields and behaviors.
+ * Still uses AST for validation (isModelClass, isFragment, intermediate models)
+ * and mixin trait/extension extraction from heritage clause.
+ */
+function analyzeModelFromParsed(parsedFile: ParsedFile, options: TransformOptions): ModelAnalysisResult {
+  const filePath = parsedFile.path;
+  const modelName = parsedFile.pascalName;
+  const baseName = parsedFile.baseName;
+
+  try {
+    const validation = validateModelAST(filePath, parsedFile.source, options);
+    if (!validation) {
+      return createInvalidResult(modelName, baseName);
+    }
+
+    const { root, modelImportLocal, defaultExportNode, isFragment } = validation;
+
+    // Use pre-parsed data for fields and behaviors
+    const schemaFields: SchemaField[] = parsedFile.fields.map((f) => ({
+      name: f.name,
+      kind: f.kind,
+      type: f.type,
+      options: f.options,
+    }));
+
+    const extensionProperties = parsedFile.behaviors
+      .filter((b) => !SKIP_METHOD_NAMES.includes(b.name))
+      .map((b) => ({
+        name: b.name,
+        originalKey: b.originalKey,
+        value: b.value,
+        typeInfo: b.typeInfo,
+        isObjectMethod: b.isObjectMethod,
+      }));
+
+    // Extract heritage info (mixin traits and extensions)
+    const { mixinTraits, mixinExtensions } = extractHeritageInfo(root, filePath, options);
+
+    return {
+      isValid: true,
+      modelImportLocal: modelImportLocal ?? undefined,
+      isFragment,
+      defaultExportNode,
+      schemaFields,
+      extensionProperties,
+      mixinTraits,
+      mixinExtensions,
+      modelName,
+      baseName,
+    };
+  } catch (error) {
+    debugLog(options, `Error analyzing parsed model: ${String(error)}`);
+    return createInvalidResult(modelName, baseName);
+  }
 }
 
 /**
@@ -789,13 +836,7 @@ function generateIntermediateModelTraitArtifacts(
   const isTypeScript = originalExtension === '.ts';
 
   // Generate trait type interface
-  const traitFieldTypes = schemaFields.map((field) => {
-    return {
-      name: field.name,
-      type: schemaFieldToTypeScriptType(field, options),
-      readonly: true,
-    };
-  });
+  const traitFieldTypes = mapFieldsToTypeProperties(schemaFields, options);
 
   // For intermediate model traits, we need to add the `id` property from the Model base class
   // to the type chain. We add this to all traits since it's inherited from Model.
@@ -844,56 +885,11 @@ function generateIntermediateModelTraitArtifacts(
 
   // Collect imports for trait interface
   const traitImports = new Set<string>();
-  const commonImports = generateCommonWarpDriveImports(options);
 
   // Add imports for Model base property types (BelongsToReference, HasManyReference, Errors)
-  // These types always come from @warp-drive/legacy, not from emberDataImportSource
   traitImports.add(`type { BelongsToReference, HasManyReference, Errors } from '@warp-drive/legacy/model/-private'`);
-
-  // Add any specific imports needed by field types
-  schemaFields.forEach((field) => {
-    if (field.kind === 'belongsTo' || field.kind === 'hasMany') {
-      if (field.type && field.type !== traitName) {
-        const typeName = toPascalCase(field.type);
-
-        // Use dynamic logic to determine if this should be imported from traits or resources
-        traitImports.add(transformModelToResourceImport(field.type, typeName, options));
-
-        // Add HasMany type imports for hasMany relationships
-        if (field.kind === 'hasMany') {
-          const isAsync = field.options && field.options.async === true;
-          if (isAsync) {
-            traitImports.add(commonImports.asyncHasManyImport);
-          } else {
-            traitImports.add(commonImports.hasManyImport);
-          }
-        }
-      }
-    }
-  });
-
-  // Add imports for other traits this trait extends
-  if (mixinTraits.length > 0) {
-    mixinTraits.forEach((trait) => {
-      const otherTraitTypeName = `${toPascalCase(trait)}Trait`;
-
-      // Check if the trait file actually exists before adding import
-      if (options?.traitsDir) {
-        const traitFilePath = join(options.traitsDir, `${trait}.schema.ts`);
-        const traitFilePathJs = join(options.traitsDir, `${trait}.schema.js`);
-        if (!existsSync(traitFilePath) && !existsSync(traitFilePathJs)) {
-          debugLog(options, `Skipping trait import for '${trait}' - file does not exist at ${traitFilePath}`);
-          return;
-        }
-      }
-
-      // Import trait type - use configured path or default to relative
-      const traitImport = options?.traitsImport
-        ? `type { ${otherTraitTypeName} } from '${options.traitsImport}/${trait}.schema'`
-        : `type { ${otherTraitTypeName} } from './${trait}.schema'`;
-      traitImports.add(traitImport);
-    });
-  }
+  collectRelationshipImports(schemaFields, traitName, traitImports, options);
+  collectTraitImports(mixinTraits, traitImports, options, true);
 
   // Add Store type import if storeType is configured
   if (options?.storeType) {
@@ -905,23 +901,12 @@ function generateIntermediateModelTraitArtifacts(
 
   // Build the trait schema object
   const traitSchemaName = `${traitPascalName}Trait`;
-  const traitSchemaObject: Record<string, unknown> = {
-    fields: schemaFields.map((field) => ({
-      kind: field.kind,
-      name: field.name,
-      ...(field.type ? { type: field.type } : {}),
-      ...(field.options && Object.keys(field.options).length > 0 ? { options: field.options } : {}),
-    })),
-  };
-
-  if (mixinTraits.length > 0) {
-    traitSchemaObject.traits = mixinTraits;
-  }
+  const traitSchemaObject = buildTraitSchemaObject(schemaFields, mixinTraits, { legacyFieldOrder: true });
 
   // Generate merged trait schema code (schema + types in one file)
-  const mergedTraitSchemaCode = generateMergedTraitSchemaCode({
+  const mergedTraitSchemaCode = generateMergedSchemaCode({
     baseName: traitName,
-    traitInterfaceName: traitSchemaName,
+    interfaceName: traitSchemaName,
     schemaName: traitSchemaName,
     schemaObject: traitSchemaObject,
     properties: traitFieldTypes,
@@ -951,13 +936,12 @@ function generateIntermediateModelTraitArtifacts(
       traitName,
       `${traitPascalName}Extension`,
       extensionProperties,
-      defaultExportNode ?? null,
       options,
       traitInterfaceName,
       traitImportPath,
-      'model', // Source is a model file (intermediate model generating trait)
-      undefined, // processImports - not used for models
-      'trait' // Extension context - trait extensions go to traitsDir
+      'model',
+      undefined,
+      'trait'
     );
     if (extensionArtifact) {
       artifacts.push(extensionArtifact);
@@ -1392,8 +1376,6 @@ function extractModelFields(
     typeInfo?: ExtractedType;
     isObjectMethod?: boolean;
   }>;
-  mixinTraits: string[];
-  mixinExtensions: string[];
 } {
   const schemaFields: SchemaField[] = [];
   const extensionProperties: Array<{
@@ -1403,8 +1385,6 @@ function extractModelFields(
     typeInfo?: ExtractedType;
     isObjectMethod?: boolean;
   }> = [];
-  const mixinTraits: string[] = [];
-  const mixinExtensions: string[] = [];
 
   // Check if this is a JavaScript file - skip type extraction for JS files
   const isJavaScriptFile = isJavaScriptFileByPath(filePath);
@@ -1413,59 +1393,15 @@ function extractModelFields(
   const classDeclaration = root.find({ rule: { kind: NODE_KIND_CLASS_DECLARATION } });
   if (!classDeclaration) {
     debugLog(options, 'DEBUG: No class declaration found in extractModelFields');
-    return { schemaFields, extensionProperties, mixinTraits, mixinExtensions };
+    return { schemaFields, extensionProperties };
   }
   debugLog(options, 'DEBUG: Found class declaration in extractModelFields');
-
-  // Extract mixin information from extends clause
-  const heritageClause = classDeclaration.find({ rule: { kind: NODE_KIND_CLASS_HERITAGE } });
-  if (heritageClause) {
-    // Get mixin imports to map local names to file paths
-    const mixinImports = getMixinImports(root, options);
-    mixinTraits.push(...extractMixinTraits(heritageClause, root, mixinImports, options));
-
-    // Extract mixin extensions (mixins with non-trait properties like methods, computed properties)
-    const mixinExts = extractMixinExtensions(heritageClause, root, mixinImports, filePath, options);
-    mixinExtensions.push(...mixinExts);
-
-    // Extract intermediate model traits
-    if (options?.intermediateModelPaths && options.intermediateModelPaths.length > 0) {
-      const intermediateTraits = extractIntermediateModelTraits(
-        heritageClause,
-        root,
-        options.intermediateModelPaths,
-        options
-      );
-      mixinTraits.push(...intermediateTraits);
-    }
-
-    // Extract base model trait and extension
-    if (options?.baseModel?.import) {
-      const baseModelLocalName = findEmberImportLocalName(
-        root,
-        [options.baseModel.import],
-        options,
-        undefined,
-        process.cwd()
-      );
-      if (baseModelLocalName && heritageClause.text().includes(baseModelLocalName)) {
-        // Add trait if configured
-        if (options.baseModel.trait) {
-          mixinTraits.push(options.baseModel.trait);
-        }
-        // Add extension if configured
-        if (options.baseModel.extension) {
-          mixinExtensions.push(options.baseModel.extension);
-        }
-      }
-    }
-  }
 
   // Get the class body
   const classBody = classDeclaration.find({ rule: { kind: NODE_KIND_CLASS_BODY } });
   if (!classBody) {
     debugLog(options, 'DEBUG: No class body found');
-    return { schemaFields, extensionProperties, mixinTraits, mixinExtensions };
+    return { schemaFields, extensionProperties };
   }
   debugLog(options, 'DEBUG: Found class body, looking for properties...');
 
@@ -1498,7 +1434,7 @@ function extractModelFields(
     debugLog(options, `DEBUG: Class body child types: ${childTypes}`);
   } catch (error) {
     errorLog(options, `DEBUG: Error finding properties: ${String(error)}`);
-    return { schemaFields, extensionProperties, mixinTraits, mixinExtensions };
+    return { schemaFields, extensionProperties };
   }
 
   // Process property definitions
@@ -1636,13 +1572,9 @@ function extractModelFields(
       options,
       `Extracted ${schemaFields.length} schema fields, ${extensionProperties.length} extension properties`
     );
-    debugLog(options, `Mixin traits: ${mixinTraits.join(', ')}`);
   }
 
-  // Deduplicate mixinTraits while preserving order
-  const uniqueMixinTraits = [...new Set(mixinTraits)];
-
-  return { schemaFields, extensionProperties, mixinTraits: uniqueMixinTraits, mixinExtensions };
+  return { schemaFields, extensionProperties };
 }
 
 /**
@@ -1825,7 +1757,6 @@ function extractMixinExtensions(
     const cacheEntry = mixinExtensionCache.get(mixinFilePath);
     if (cacheEntry?.hasExtension && cacheEntry.extensionName) {
       mixinExtensions.push(cacheEntry.extensionName);
-    } else {
     }
   }
 
@@ -1833,57 +1764,11 @@ function extractMixinExtensions(
 }
 
 /**
- * Analyze a mixin file to determine if it has extension properties
- * Returns the extension name if the mixin has non-trait properties (methods, computed, etc.)
- */
-function analyzeMixinForExtension(
-  filePath: string,
-  source: string,
-  options: TransformOptions
-): { hasExtension: boolean; extensionName: string | null } {
-  try {
-    const lang = getLanguageFromPath(filePath);
-    const ast = parse(lang, source);
-    const root = ast.root();
-
-    const mixinSources = ['@ember/object/mixin'];
-    const mixinLocalName = findEmberImportLocalName(root, mixinSources, options, filePath, process.cwd());
-    if (!mixinLocalName) {
-      return { hasExtension: false, extensionName: null };
-    }
-
-    // Get EmberData imports for detecting trait fields
-    const emberDataSources = [options?.emberDataImportSource || DEFAULT_EMBER_DATA_SOURCE];
-    const emberDataImports = getEmberDataImports(root, emberDataSources, options);
-
-    // Extract mixin name from file path (camelCase)
-    const mixinName = extractCamelCaseName(filePath);
-
-    // Extract trait fields and extension properties
-    const { extensionProperties } = extractTraitFields(
-      root,
-      emberDataImports,
-      mixinLocalName,
-      mixinName,
-      filePath,
-      options
-    );
-
-    const hasExtension = extensionProperties.length > 0;
-    const extensionName = hasExtension ? `${mixinName}Extension` : null;
-
-    return { hasExtension, extensionName };
-  } catch (error) {
-    debugLog(options, `Error analyzing mixin ${filePath} for extension: ${String(error)}`);
-    return { hasExtension: false, extensionName: null };
-  }
-}
-
-/**
  * Pre-analyze all mixins in modelConnectedMixins to populate the extension cache
+ * Uses pre-parsed ParsedFile data to avoid redundant AST parsing.
  */
 export function preAnalyzeConnectedMixinExtensions(
-  mixinFiles: Map<Filename, InputFile>,
+  parsedMixins: Map<Filename, ParsedFile>,
   options: TransformOptions
 ): void {
   if (!options.modelConnectedMixins || options.modelConnectedMixins.size === 0) {
@@ -1892,14 +1777,17 @@ export function preAnalyzeConnectedMixinExtensions(
   }
 
   for (const mixinFilePath of options.modelConnectedMixins) {
-    const mixinSource = mixinFiles.get(mixinFilePath);
-    if (mixinExtensionCache.has(mixinFilePath) || !mixinSource) {
+    const parsedMixin = parsedMixins.get(mixinFilePath);
+    if (mixinExtensionCache.has(mixinFilePath) || !parsedMixin) {
       continue;
     }
 
     try {
-      const analysis = analyzeMixinForExtension(mixinFilePath, mixinSource.code, options);
-      mixinExtensionCache.set(mixinFilePath, analysis);
+      // Use pre-parsed data instead of re-parsing the file
+      const hasExtension = parsedMixin.hasExtension;
+      const extensionName = hasExtension ? `${parsedMixin.camelName}Extension` : null;
+
+      mixinExtensionCache.set(mixinFilePath, { hasExtension, extensionName });
     } catch (error) {
       mixinExtensionCache.set(mixinFilePath, { hasExtension: false, extensionName: null });
     }

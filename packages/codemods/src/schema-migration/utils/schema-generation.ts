@@ -1,11 +1,16 @@
 import type { SgNode } from '@ast-grep/napi';
+import { existsSync } from 'fs';
+import { join } from 'path';
 
 import type { TransformOptions } from '../config.js';
 import { parseObjectLiteralFromNode } from './ast-helpers.js';
 import type { ExtensionContext } from './extension-generation.js';
 import { getExtensionArtifactType } from './extension-generation.js';
+import { generateCommonWarpDriveImports, generateTraitImport, transformModelToResourceImport } from './import-utils.js';
+import { debugLog } from './logging.js';
 import { removeQuotes, toPascalCase } from './path-utils.js';
 import type { ExtractedType } from './type-utils.js';
+import { schemaFieldToTypeScriptType } from './type-utils.js';
 
 /**
  * Shared artifact interface for both transforms
@@ -129,27 +134,6 @@ export function buildLegacySchemaObject(
   }
 
   return legacySchema;
-}
-
-/**
- * Generate trait schema code
- * Shared between model-to-schema and mixin-to-schema transforms
- */
-export function generateTraitSchemaCode(
-  traitName: string,
-  traitBaseName: string,
-  schemaFields: SchemaField[],
-  mixinTraits: string[]
-): string {
-  const trait: Record<string, unknown> = {
-    fields: schemaFields.map(schemaFieldToLegacyFormat),
-  };
-
-  if (mixinTraits.length > 0) {
-    trait.traits = mixinTraits;
-  }
-
-  return generateExportStatement(traitName, trait);
 }
 
 /**
@@ -362,55 +346,6 @@ export function createTypeArtifact(
 }
 
 /**
- * Create extension artifact if extension properties exist
- * Shared utility for consistent extension artifact generation
- */
-export function createExtensionArtifact(
-  baseName: string,
-  entityName: string,
-  extensionProperties: Array<{ name: string; originalKey: string; value: string; isObjectMethod?: boolean }>,
-  extensionFormat: 'class' | 'object',
-  fileExtension?: string,
-  generateExtensionCode?: (
-    name: string,
-    props: Array<{ name: string; originalKey: string; value: string; isObjectMethod?: boolean }>,
-    format: 'object' | 'class'
-  ) => string,
-  context: ExtensionContext = 'resource'
-): TransformArtifact | null {
-  if (extensionProperties.length === 0) {
-    return null;
-  }
-
-  const extensionName = `${entityName}Extension`;
-
-  // Use provided generator or create a simple fallback
-  const generator =
-    generateExtensionCode ||
-    ((name, props, format) => {
-      if (format === 'class') {
-        const methods = props.map((p) => `  ${p.value}`).join('\n\n');
-        return `export class ${name} {\n${methods}\n}`;
-      }
-      const properties = props.map((p) => `  ${p.originalKey}: ${p.value}`).join(',\n');
-      return `export const ${name} = {\n${properties}\n};`;
-    });
-
-  const extensionCode = generator(extensionName, extensionProperties, extensionFormat);
-
-  // Use .ext suffix for extension files
-  const ext = fileExtension || '.ts';
-  const extFileName = `${baseName}.ext${ext}`;
-
-  return {
-    type: getExtensionArtifactType(context),
-    name: extensionName,
-    code: extensionCode,
-    suggestedFileName: extFileName,
-  };
-}
-
-/**
  * Create extension and type artifacts for properties with TypeScript types
  * Note: Type artifacts are no longer generated separately - types are merged into schema files
  */
@@ -464,6 +399,112 @@ export function createExtensionArtifactWithTypes(
 }
 
 /**
+ * Collect relationship imports (belongsTo/hasMany) for schema fields.
+ * Shared between model and mixin artifact generation.
+ */
+export function collectRelationshipImports(
+  fields: SchemaField[],
+  selfName: string,
+  imports: Set<string>,
+  options?: TransformOptions
+): void {
+  const commonImports = generateCommonWarpDriveImports(options);
+
+  for (const field of fields) {
+    if (field.kind === 'belongsTo' || field.kind === 'hasMany') {
+      if (field.type && field.type !== selfName) {
+        const typeName = toPascalCase(field.type);
+        imports.add(transformModelToResourceImport(field.type, typeName, options));
+
+        if (field.kind === 'hasMany') {
+          const isAsync = field.options && field.options.async === true;
+          if (isAsync) {
+            imports.add(commonImports.asyncHasManyImport);
+          } else {
+            imports.add(commonImports.hasManyImport);
+          }
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Collect trait interface imports.
+ * When checkExistence is true, skips traits whose .schema files don't exist on disk.
+ */
+export function collectTraitImports(
+  traits: string[],
+  imports: Set<string>,
+  options?: TransformOptions,
+  checkExistence = false
+): void {
+  for (const trait of traits) {
+    if (checkExistence && options?.traitsDir) {
+      const traitFilePath = join(options.traitsDir, `${trait}.schema.ts`);
+      const traitFilePathJs = join(options.traitsDir, `${trait}.schema.js`);
+      if (!existsSync(traitFilePath) && !existsSync(traitFilePathJs)) {
+        debugLog(options, `Skipping trait import for '${trait}' - file does not exist at ${traitFilePath}`);
+        continue;
+      }
+    }
+
+    const traitImport = generateTraitImport(trait, options);
+    imports.add(traitImport);
+  }
+}
+
+/**
+ * Map SchemaField[] to type properties for interface generation.
+ */
+export function mapFieldsToTypeProperties(
+  fields: SchemaField[],
+  options?: TransformOptions,
+  readonlyFields = true
+): Array<{ name: string; type: string; readonly: boolean; comment?: string }> {
+  return fields.map((field) => ({
+    name: field.name,
+    type: schemaFieldToTypeScriptType(field, options),
+    readonly: readonlyFields,
+    comment: field.comment,
+  }));
+}
+
+/**
+ * Build a trait schema object from fields and traits.
+ * Used by both mixin and intermediate-model trait generation.
+ */
+export function buildTraitSchemaObject(
+  fields: SchemaField[],
+  traits: string[],
+  extra?: { name?: string; mode?: string; legacyFieldOrder?: boolean }
+): Record<string, unknown> {
+  const obj: Record<string, unknown> = {};
+
+  if (extra?.name) {
+    obj.name = extra.name;
+  }
+  if (extra?.mode) {
+    obj.mode = extra.mode;
+  }
+
+  obj.fields = extra?.legacyFieldOrder
+    ? fields.map(schemaFieldToLegacyFormat)
+    : fields.map((field) => ({
+        name: field.name,
+        kind: field.kind,
+        ...(field.type ? { type: field.type } : {}),
+        ...(field.options && Object.keys(field.options).length > 0 ? { options: field.options } : {}),
+      }));
+
+  if (traits.length > 0) {
+    obj.traits = traits;
+  }
+
+  return obj;
+}
+
+/**
  * Options for generating merged schema with types
  */
 export interface MergedSchemaOptions {
@@ -496,15 +537,8 @@ export interface MergedSchemaOptions {
 /**
  * Convert trait name (kebab-case) to interface name (PascalCase + 'Trait' suffix)
  */
-export function traitNameToInterfaceName(traitName: string): string {
+function traitNameToInterfaceName(traitName: string): string {
   return `${toPascalCase(traitName)}Trait`;
-}
-
-/**
- * Generate import path for a trait
- */
-export function traitNameToImportPath(traitName: string, appPrefix: string): string {
-  return `${appPrefix}/data/traits/${traitName}.schema`;
 }
 
 /**
@@ -628,78 +662,3 @@ export function generateMergedSchemaCode(opts: MergedSchemaOptions): string {
   return sections.join('\n');
 }
 
-/**
- * Options for generating merged trait schema with types
- */
-export interface MergedTraitSchemaOptions {
-  /** The base name of the trait (kebab-case, e.g., 'timestamped') */
-  baseName: string;
-  /** The trait interface name (e.g., 'TimestampedTrait') */
-  traitInterfaceName: string;
-  /** The schema variable name (e.g., 'TimestampedTrait') */
-  schemaName: string;
-  /** The trait schema object to export */
-  schemaObject: Record<string, unknown>;
-  /** Properties for the interface */
-  properties: Array<{
-    name: string;
-    type: string;
-    readonly?: boolean;
-    optional?: boolean;
-    comment?: string;
-  }>;
-  /** Other traits that this trait extends */
-  traits?: string[];
-  /** Import statements needed for types */
-  imports?: Set<string>;
-  /** Whether this is a TypeScript file */
-  isTypeScript: boolean;
-}
-
-/**
- * Generate a merged trait schema file containing both the schema object and type interface
- */
-export function generateMergedTraitSchemaCode(opts: MergedTraitSchemaOptions): string {
-  const {
-    schemaName,
-    traitInterfaceName,
-    schemaObject,
-    properties,
-    traits = [],
-    imports = new Set(),
-    isTypeScript,
-  } = opts;
-
-  const sections: string[] = [];
-
-  // Generate imports section (only for TypeScript)
-  if (isTypeScript) {
-    const importsCode = generateTypeScriptImports(imports);
-    if (importsCode) {
-      sections.push(importsCode);
-    }
-  }
-
-  // Generate schema declaration
-  const schemaDecl = generateSchemaDeclaration(schemaName, schemaObject, isTypeScript);
-  sections.push(schemaDecl);
-
-  // Generate default export
-  sections.push(`\nexport default ${schemaName};`);
-
-  // Generate interface (only for TypeScript)
-  if (isTypeScript) {
-    // Build extends clause from traits
-    let extendsClause: string | undefined;
-    if (traits.length > 0) {
-      const traitInterfaces = traits.map(traitNameToInterfaceName);
-      extendsClause = traitInterfaces.join(', ');
-    }
-
-    const interfaceCode = generateInterfaceOnly(traitInterfaceName, properties, extendsClause);
-    sections.push('');
-    sections.push(interfaceCode);
-  }
-
-  return sections.join('\n');
-}

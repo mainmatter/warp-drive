@@ -10,7 +10,7 @@ import { MIXIN_SUFFIX_REGEX } from './string.js';
 /**
  * Find all export statements
  */
-export function findExportStatements(root: SgNode, options?: TransformOptions) {
+function findExportStatements(root: SgNode, options?: TransformOptions) {
   const exportStatements = root.findAll({ rule: { kind: 'export_statement' } });
 
   debugLog(options, `Found ${exportStatements.length} export statements`);
@@ -219,27 +219,6 @@ export function parseObjectLiteral(objectText: string): Record<string, unknown> 
     // Return empty object if parsing fails
     return {};
   }
-}
-
-/**
- * Extract existing imports from a TypeScript/JavaScript file
- */
-export function extractExistingImports(root: SgNode, options?: TransformOptions): string[] {
-  const imports: string[] = [];
-
-  // Find all import statements
-  const importDeclarations = root.findAll({ rule: { kind: 'import_statement' } });
-
-  for (const importDecl of importDeclarations) {
-    const importText = importDecl.text();
-    // Skip empty imports and only include actual import statements
-    if (importText.trim() && importText.includes('import')) {
-      imports.push(importText);
-    }
-  }
-
-  debugLog(options, `Extracted ${imports.length} existing imports from original file`);
-  return imports;
 }
 
 /**

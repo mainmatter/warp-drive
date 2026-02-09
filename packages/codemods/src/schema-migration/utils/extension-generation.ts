@@ -310,7 +310,6 @@ export function createExtensionFromOriginalFile(
   baseName: string,
   extensionName: string,
   extensionProperties: Array<{ name: string; originalKey: string; value: string; isObjectMethod?: boolean }>,
-  defaultExportNode: SgNode | null,
   options?: TransformOptions,
   interfaceToExtend?: string,
   interfaceImportPath?: string,

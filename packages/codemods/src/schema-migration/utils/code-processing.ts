@@ -3,8 +3,7 @@ import { existsSync } from 'fs';
 
 import { removeQuoteChars } from './string.js';
 
-// Re-export parseObjectLiteral from ast-helpers for backward compatibility
-export { parseObjectLiteral, parseObjectLiteralFromNode, parseObjectPropertiesFromNode } from './ast-helpers.js';
+export { parseObjectPropertiesFromNode } from './ast-helpers.js';
 
 /** AST node kind for identifier nodes */
 export const NODE_KIND_IDENTIFIER = 'identifier';
@@ -289,4 +288,65 @@ export function extractFieldNameFromKey(originalKey: string): string {
     return originalKey.slice(1, -1);
   }
   return originalKey;
+}
+
+const KEYWORD_ASYNC = 'async ';
+const KEYWORD_GENERATOR_FUNCTION = 'function*';
+const KEYWORD_GENERATOR_ASTERISK = '*';
+const KEYWORD_GET = 'get';
+const KEYWORD_SET = 'set';
+
+function isGetterOrSetterKey(keyText: string): boolean {
+  return keyText === KEYWORD_GET || keyText === KEYWORD_SET;
+}
+
+function isAsyncOrGeneratorMethod(value: SgNode, propertyText: string): boolean {
+  const valueKind = value.kind();
+  if (valueKind !== NODE_KIND_FUNCTION && valueKind !== NODE_KIND_ARROW_FUNCTION) {
+    return false;
+  }
+  return (
+    propertyText.includes(KEYWORD_ASYNC) ||
+    propertyText.includes(KEYWORD_GENERATOR_FUNCTION) ||
+    propertyText.includes(KEYWORD_GENERATOR_ASTERISK)
+  );
+}
+
+function isComputedPropertyWithFunction(property: SgNode): boolean {
+  const key = property.field('key');
+  if (key?.kind() !== NODE_KIND_COMPUTED_PROPERTY_NAME) {
+    return false;
+  }
+  const value = property.field('value');
+  return value?.kind() === NODE_KIND_FUNCTION;
+}
+
+/**
+ * Determines if an AST node represents object method syntax that doesn't need key: value format
+ * Handles: methods, getters, setters, async methods, generators, computed properties
+ */
+export function isObjectMethodSyntax(property: SgNode): boolean {
+  const propertyKind = property.kind();
+
+  if (propertyKind === NODE_KIND_METHOD_DEFINITION) {
+    return true;
+  }
+
+  if (propertyKind === NODE_KIND_PAIR) {
+    const key = property.field('key');
+    if (key && isGetterOrSetterKey(key.text())) {
+      return true;
+    }
+
+    const value = property.field('value');
+    if (value && isAsyncOrGeneratorMethod(value, property.text())) {
+      return true;
+    }
+
+    if (isComputedPropertyWithFunction(property)) {
+      return true;
+    }
+  }
+
+  return false;
 }

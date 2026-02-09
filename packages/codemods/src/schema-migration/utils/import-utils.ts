@@ -8,14 +8,15 @@ import { findClassDeclaration, findDefaultExport, getExportedIdentifier } from '
 import { debugLog } from './logging.js';
 import {
   extractBaseName,
+  getImportSourceConfig,
   getLanguageFromPath,
   mixinNameToTraitName,
   removeQuotes,
+  resolveRelativeImport,
   toPascalCase,
 } from './path-utils.js';
 import {
   createQuotedPathRegex,
-  escapeRegexChars,
   EXT_FILE_PATH_REGEX,
   FILE_EXTENSION_REGEX,
   IMPORT_DEFAULT_REGEX,
@@ -246,90 +247,9 @@ export function transformModelToResourceImport(
 }
 
 /**
- * Extract mapping from model types to their imported names by analyzing import statements
- * e.g., 'import type UserModel from "./user"' maps "user" -> "UserModel"
- */
-export function extractTypeNameMapping(root: SgNode, options?: TransformOptions): Map<string, string> {
-  const mapping = new Map<string, string>();
-
-  try {
-    // Find all import declarations
-    const imports = root.findAll({ rule: { kind: 'import_statement' } });
-
-    // Build the model import pattern from configuration
-    const modelImportSource = options?.modelImportSource;
-
-    for (const importNode of imports) {
-      const importText = importNode.text();
-
-      // Build regex pattern dynamically based on configuration
-      // Pattern: import type SomeName from './some-path' or '{modelImportSource}/some-path'
-      let regexPattern: RegExp;
-      if (modelImportSource) {
-        // Escape special regex characters in the import source
-        const escapedModelImportSource = escapeRegexChars(modelImportSource);
-        regexPattern = new RegExp(
-          `import\\s+type\\s+(\\w+)\\s+from\\s+['"](?:\\.\\/([^'"]+)|${escapedModelImportSource}\\/([^'"]+))['"];?`
-        );
-      } else {
-        // Fallback to only matching relative imports
-        regexPattern = /import\s+type\s+(\w+)\s+from\s+['"]\.\/([^'"]+)['"];?/;
-      }
-
-      const defaultImportMatch = importText.match(regexPattern);
-
-      if (defaultImportMatch) {
-        const [, importName, relativePath, absolutePath] = defaultImportMatch;
-        const modelPath = relativePath || absolutePath;
-
-        if (modelPath) {
-          // Extract the model type from the path (e.g., "user" from "./user" or "my-app/models/user")
-          const modelType = modelPath.replace(FILE_EXTENSION_REGEX, '').split('/').pop();
-          if (modelType) {
-            debugLog(options, `Mapping model type '${modelType}' to import name '${importName}'`);
-            mapping.set(modelType, importName);
-          }
-        }
-      }
-    }
-  } catch (error: unknown) {
-    debugLog(options, `Error extracting type name mapping: ${String(error)}`);
-  }
-
-  return mapping;
-}
-
-/**
  * Type of import source for resolving absolute imports
  */
 type ImportSourceType = 'model' | 'mixin';
-
-/**
- * Configuration for building import sources
- */
-interface ImportSourceConfig {
-  primarySource?: string;
-  primaryDir?: string;
-  additionalSources?: Array<{ pattern: string; dir: string }>;
-}
-
-/**
- * Get import source configuration based on source type
- */
-function getImportSourceConfig(sourceType: ImportSourceType, options?: TransformOptions): ImportSourceConfig {
-  if (sourceType === 'model') {
-    return {
-      primarySource: options?.modelImportSource,
-      primaryDir: options?.modelSourceDir,
-      additionalSources: options?.additionalModelSources,
-    };
-  }
-  return {
-    primarySource: options?.mixinImportSource,
-    primaryDir: options?.mixinSourceDir,
-    additionalSources: options?.additionalMixinSources,
-  };
-}
 
 /**
  * Check if an import path matches configured sources for a given source type
@@ -506,40 +426,6 @@ function resolveAbsoluteMixinImport(importPath: string, baseDir: string, options
  */
 function resolveAbsoluteModelImport(importPath: string, baseDir: string, options?: TransformOptions): string | null {
   return resolveAbsoluteImport(importPath, 'model', options);
-}
-
-/**
- * Resolve relative import path to absolute file path
- */
-export function resolveRelativeImport(importPath: string, fromFile: string, baseDir: string): string | null {
-  if (!importPath.startsWith('./') && !importPath.startsWith('../')) {
-    return null;
-  }
-
-  try {
-    const fromDir = dirname(fromFile);
-    const resolvedPath = resolve(fromDir, importPath);
-
-    // Try different extensions
-    for (const ext of ['.js', '.ts']) {
-      const fullPath = resolvedPath + ext;
-      if (existsSync(fullPath)) {
-        return fullPath;
-      }
-    }
-
-    // Try index files
-    for (const ext of ['.js', '.ts']) {
-      const indexPath = resolve(resolvedPath, 'index' + ext);
-      if (existsSync(indexPath)) {
-        return indexPath;
-      }
-    }
-  } catch (error) {
-    debugLog(undefined, `Error resolving relative import: ${String(error)}`);
-  }
-
-  return null;
 }
 
 /**

@@ -95,7 +95,7 @@ export function getTypeScriptTypeForAttribute(
  * Generate TypeScript type for a belongsTo field
  * Shared between model-to-schema and mixin-to-schema transforms
  */
-export function getTypeScriptTypeForBelongsTo(
+function getTypeScriptTypeForBelongsTo(
   field: { type?: string; options?: Record<string, unknown> },
   options?: TransformOptions
 ): string {
@@ -118,7 +118,7 @@ export function getTypeScriptTypeForBelongsTo(
  * Generate TypeScript type for a hasMany field
  * Shared between model-to-schema and mixin-to-schema transforms
  */
-export function getTypeScriptTypeForHasMany(
+function getTypeScriptTypeForHasMany(
   field: { type?: string; options?: Record<string, unknown> },
   options?: TransformOptions
 ): string {
@@ -175,7 +175,7 @@ export function schemaFieldToTypeScriptType(field: SchemaFieldForType, options?:
 /**
  * Extract import dependencies from a TypeScript type string
  */
-export function extractImportsFromType(typeText: string, emberDataImportSource: string): string[] {
+function extractImportsFromType(typeText: string, emberDataImportSource: string): string[] {
   const imports: string[] = [];
 
   // Look for specific types that need imports

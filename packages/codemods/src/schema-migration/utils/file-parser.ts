@@ -8,7 +8,7 @@
 
 import { parse, type SgNode } from '@ast-grep/napi';
 
-import type { FinalOptions, TransformOptions } from '../config.js';
+import type { TransformOptions } from '../config.js';
 import {
   findDefaultExport,
   getEmberDataImports,
@@ -29,13 +29,14 @@ import {
   NODE_KIND_IMPORT_STATEMENT,
   NODE_KIND_MEMBER_EXPRESSION,
   NODE_KIND_METHOD_DEFINITION,
+  NODE_KIND_PAIR,
   NODE_KIND_PROPERTY_IDENTIFIER,
 } from './code-processing.js';
-import { findEmberImportLocalName } from './import-utils.js';
+import { DEFAULT_EMBER_DATA_SOURCE, findEmberImportLocalName } from './import-utils.js';
 import { debugLog } from './logging.js';
 import { extractBaseName, extractCamelCaseName, extractPascalCaseName, getLanguageFromPath } from './path-utils.js';
 import { convertToSchemaField } from './schema-generation.js';
-import { removeQuoteChars } from './string.js';
+import { mixinNameToKebab, removeQuoteChars } from './string.js';
 import type { ExtractedType } from './type-utils.js';
 import { extractTypeFromDeclaration, extractTypeFromDecorator, extractTypeFromMethod } from './type-utils.js';
 
@@ -55,6 +56,8 @@ export interface ParsedFileImport {
   localNames: string[];
   /** Whether it's a default import */
   isDefault: boolean;
+  /** Whether this is a type-only import (import type ...) */
+  isTypeOnly: boolean;
 }
 
 /**
@@ -123,13 +126,14 @@ export interface ParsedFile {
   camelName: string;
   /** kebab-case name (base name) */
   baseName: string;
+  /** Original source code - preserved for functions that still need raw access during transition */
+  source: string;
 }
 
 // ============================================================================
 // Constants
 // ============================================================================
 
-const DEFAULT_EMBER_DATA_SOURCE = 'ember-data';
 const DEFAULT_MIXIN_SOURCE = '@ember/object/mixin';
 const FRAGMENT_BASE_SOURCE = 'ember-data-model-fragments/fragment';
 const WARP_DRIVE_MODEL = '@warp-drive/model';
@@ -205,6 +209,10 @@ function parseImports(root: SgNode, options: TransformOptions): ParsedFileImport
     const localNames: string[] = [];
     let isDefault = false;
 
+    // Detect type-only imports: "import type ..." or "import type {...}"
+    const importText = importNode.text();
+    const isTypeOnly = /^import\s+type\s/.test(importText);
+
     const importClause = importNode.children().find((child) => child.kind() === NODE_KIND_IMPORT_CLAUSE);
     if (importClause) {
       const identifiers = importClause.findAll({ rule: { kind: NODE_KIND_IDENTIFIER } });
@@ -227,6 +235,7 @@ function parseImports(root: SgNode, options: TransformOptions): ParsedFileImport
       type: classifyImport(importPath, options),
       localNames,
       isDefault,
+      isTypeOnly,
     });
   }
 
@@ -272,7 +281,7 @@ function findClassDeclarationInRoot(root: SgNode, options?: TransformOptions): S
   return null;
 }
 
-function isClassMethodSyntax(methodNode: SgNode): boolean {
+export function isClassMethodSyntax(methodNode: SgNode): boolean {
   const methodKind = methodNode.kind();
 
   if (methodKind === NODE_KIND_METHOD_DEFINITION) {
@@ -315,7 +324,6 @@ function determineBehaviorKind(node: SgNode): ParsedBehavior['kind'] {
   const nodeKind = node.kind();
 
   if (nodeKind === NODE_KIND_METHOD_DEFINITION) {
-    const nameNode = node.field('name');
     const prevSibling = node.prev();
 
     if (prevSibling?.text() === 'get') {
@@ -403,6 +411,7 @@ function extractModelData(root: SgNode, filePath: string, options: TransformOpti
   const emberDataSources = [
     options.emberDataImportSource || DEFAULT_EMBER_DATA_SOURCE,
     'ember-data-model-fragments/attributes',
+    FRAGMENT_BASE_SOURCE,
     WARP_DRIVE_MODEL,
   ];
   const emberDataImports = getEmberDataImports(root, emberDataSources, options);
@@ -464,7 +473,7 @@ function extractModelData(root: SgNode, filePath: string, options: TransformOpti
         if (schemaField) {
           fields.push({
             name: schemaField.name,
-            kind: schemaField.kind as ParsedField['kind'],
+            kind: schemaField.kind,
             type: schemaField.type,
             options: schemaField.options,
             tsType: typeInfo?.type,
@@ -535,6 +544,165 @@ function extractModelData(root: SgNode, filePath: string, options: TransformOpti
 }
 
 // ============================================================================
+// Mixin Data Extraction
+// ============================================================================
+
+interface ExtractedMixinData {
+  fields: ParsedField[];
+  behaviors: ParsedBehavior[];
+  traits: string[];
+}
+
+function findMixinCreateCalls(root: SgNode, mixinLocalName: string): SgNode[] {
+  const calls: SgNode[] = [];
+  const callExpressions = root.findAll({ rule: { kind: NODE_KIND_CALL_EXPRESSION } });
+
+  for (const callExpr of callExpressions) {
+    const functionNode = callExpr.field('function');
+    if (!functionNode) continue;
+
+    const funcText = functionNode.text();
+    if (funcText.includes(`${mixinLocalName}.create`) || funcText.includes(`${mixinLocalName}.createWithMixins`)) {
+      calls.push(callExpr);
+    }
+  }
+
+  return calls;
+}
+
+function extractMixinData(root: SgNode, filePath: string, options: TransformOptions): ExtractedMixinData {
+  const fields: ParsedField[] = [];
+  const behaviors: ParsedBehavior[] = [];
+  const traits: string[] = [];
+
+  const isJavaScript = filePath.endsWith('.js');
+
+  const mixinImportLocal = findEmberImportLocalName(root, [DEFAULT_MIXIN_SOURCE], options, filePath, process.cwd());
+
+  if (!mixinImportLocal) {
+    return { fields, behaviors, traits };
+  }
+
+  const emberDataSources = [
+    options.emberDataImportSource || DEFAULT_EMBER_DATA_SOURCE,
+    'ember-data-model-fragments/attributes',
+    WARP_DRIVE_MODEL,
+  ];
+  const emberDataImports = getEmberDataImports(root, emberDataSources, options);
+  const mixinCreateCalls = findMixinCreateCalls(root, mixinImportLocal);
+
+  if (mixinCreateCalls.length === 0) {
+    return { fields, behaviors, traits };
+  }
+
+  const mixinCall = mixinCreateCalls[0];
+  if (!mixinCall) {
+    return { fields, behaviors, traits };
+  }
+
+  const args = mixinCall.field('arguments');
+  if (!args) {
+    return { fields, behaviors, traits };
+  }
+
+  const argChildren = args.children();
+  const objectLiterals: SgNode[] = [];
+
+  for (const arg of argChildren) {
+    if (arg.kind() === 'object') {
+      objectLiterals.push(arg);
+    }
+  }
+
+  // Extract extended traits from identifier arguments (e.g., Mixin.create(BaseModelDate, PartialSaveable, { ... }))
+  for (const arg of argChildren) {
+    if (arg.kind() === NODE_KIND_IDENTIFIER) {
+      const traitName = mixinNameToKebab(arg.text());
+      if (!traits.includes(traitName)) {
+        traits.push(traitName);
+      }
+    }
+  }
+
+  const objectLiteral = objectLiterals[objectLiterals.length - 1];
+  if (!objectLiteral) {
+    return { fields, behaviors, traits };
+  }
+
+  const directProperties = objectLiteral.children().filter((child) => {
+    const kind = child.kind();
+    return kind === NODE_KIND_PAIR || kind === NODE_KIND_METHOD_DEFINITION;
+  });
+
+  for (const property of directProperties) {
+    let keyNode: SgNode | null = null;
+    let valueNode: SgNode | null = null;
+    let fieldName = '';
+    let originalKey = '';
+    let typeInfo: ExtractedType | undefined;
+
+    if (property.kind() === NODE_KIND_METHOD_DEFINITION) {
+      keyNode = property.field('name');
+      valueNode = property;
+      fieldName = keyNode?.text() || '';
+      originalKey = fieldName;
+
+      if (!isJavaScript) {
+        try {
+          typeInfo = extractTypeFromMethod(property, options) ?? undefined;
+        } catch {
+          // Ignore type extraction errors
+        }
+      }
+    } else {
+      keyNode = property.field('key');
+      valueNode = property.field('value');
+      originalKey = keyNode?.text() || '';
+      fieldName = removeQuoteChars(originalKey);
+    }
+
+    if (!keyNode || !valueNode || !fieldName) continue;
+
+    if (property.kind() === NODE_KIND_PAIR && valueNode.kind() === NODE_KIND_CALL_EXPRESSION) {
+      const functionNode = valueNode.field('function');
+      if (functionNode) {
+        const functionName = functionNode.text();
+
+        if (emberDataImports.has(functionName)) {
+          const originalDecoratorName = emberDataImports.get(functionName);
+          if (!originalDecoratorName) continue;
+
+          const decoratorArgs = parseDecoratorArgumentsWithNodes(valueNode);
+          const schemaField = convertToSchemaField(fieldName, originalDecoratorName, decoratorArgs);
+
+          if (schemaField) {
+            fields.push({
+              name: schemaField.name,
+              kind: schemaField.kind,
+              type: schemaField.type,
+              options: schemaField.options,
+              tsType: typeInfo?.type,
+            });
+            continue;
+          }
+        }
+      }
+    }
+
+    behaviors.push({
+      name: fieldName,
+      originalKey,
+      value: valueNode.text(),
+      typeInfo,
+      isObjectMethod: property.kind() === NODE_KIND_METHOD_DEFINITION,
+      kind: property.kind() === NODE_KIND_METHOD_DEFINITION ? 'method' : 'property',
+    });
+  }
+
+  return { fields, behaviors, traits };
+}
+
+// ============================================================================
 // File Type Detection
 // ============================================================================
 
@@ -572,6 +740,19 @@ function detectFileType(root: SgNode, filePath: string, options: TransformOption
     return 'model';
   }
 
+  // Check for intermediate fragment paths (classes extending an intermediate fragment base class)
+  if (options.intermediateFragmentPaths && options.intermediateFragmentPaths.length > 0) {
+    const importStatements = root.findAll({ rule: { kind: NODE_KIND_IMPORT_STATEMENT } });
+    for (const importNode of importStatements) {
+      const source = importNode.field('source');
+      if (!source) continue;
+      const sourceText = removeQuoteChars(source.text());
+      if (options.intermediateFragmentPaths.includes(sourceText)) {
+        return 'model';
+      }
+    }
+  }
+
   return 'unknown';
 }
 
@@ -591,7 +772,7 @@ function detectFileType(root: SgNode, filePath: string, options: TransformOption
  * @param options - Transform options including configuration
  * @returns ParsedFile structure with all extracted information
  */
-export function parseFile(filePath: string, code: string, options: FinalOptions): ParsedFile {
+export function parseFile(filePath: string, code: string, options: TransformOptions): ParsedFile {
   const lang = getLanguageFromPath(filePath);
   const ast = parse(lang, code);
   const root = ast.root();
@@ -615,10 +796,12 @@ export function parseFile(filePath: string, code: string, options: FinalOptions)
     behaviors = modelData.behaviors;
     traits = modelData.traits;
     baseClass = modelData.baseClass;
+  } else if (fileType === 'mixin') {
+    const mixinData = extractMixinData(root, filePath, options);
+    fields = mixinData.fields;
+    behaviors = mixinData.behaviors;
+    traits = mixinData.traits;
   }
-
-  // TODO: Add mixin-specific extraction when needed
-  // For now, mixins will have empty fields/behaviors until processors are updated
 
   const hasExtension = behaviors.length > 0;
 
@@ -641,27 +824,6 @@ export function parseFile(filePath: string, code: string, options: FinalOptions)
     pascalName,
     camelName,
     baseName,
+    source: code,
   };
-}
-
-/**
- * Parse multiple files in batch.
- *
- * @param files - Map of file paths to their content
- * @param options - Transform options
- * @returns Map of file paths to ParsedFile structures
- */
-export function parseFiles(files: Map<string, { code: string }>, options: FinalOptions): Map<string, ParsedFile> {
-  const parsed = new Map<string, ParsedFile>();
-
-  for (const [filePath, { code }] of files) {
-    try {
-      const parsedFile = parseFile(filePath, code, options);
-      parsed.set(filePath, parsedFile);
-    } catch (error) {
-      debugLog(options, `Failed to parse ${filePath}: ${String(error)}`);
-    }
-  }
-
-  return parsed;
 }

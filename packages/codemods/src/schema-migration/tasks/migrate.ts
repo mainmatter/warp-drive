@@ -10,6 +10,7 @@ import {
   toArtifacts as modelToArtifacts,
 } from '../processors/model.js';
 import { debugLog } from '../utils/ast-utils.js';
+import type { ParsedFile } from '../utils/file-parser.js';
 import { Logger } from '../utils/logger.js';
 
 /**
@@ -281,10 +282,10 @@ function writeIntermediateArtifacts(artifacts: Artifact[], finalOptions: FinalOp
   }
 }
 
-type ArtifactTransformer = (filePath: string, code: string, options: TransformOptions) => Artifact[];
+type ArtifactTransformer = (parsedFile: ParsedFile, options: TransformOptions) => Artifact[];
 
 interface ProcessFilesOptions {
-  files: Map<string, { code: string }>;
+  parsedFiles: Map<string, ParsedFile>;
   transformer: ArtifactTransformer;
   finalOptions: FinalOptions;
   logger: Logger;
@@ -294,9 +295,10 @@ interface ProcessFilesOptions {
 
 /**
  * Generic file processor for both models and mixins
+ * Uses pre-parsed ParsedFile data for efficient processing
  */
 async function processFiles({
-  files,
+  parsedFiles,
   transformer,
   finalOptions,
   logger,
@@ -306,13 +308,13 @@ async function processFiles({
   let skipped = 0;
   let errors = 0;
 
-  for (const [filePath, fileInput] of files) {
+  for (const [filePath, parsedFile] of parsedFiles) {
     try {
       if (finalOptions.verbose) {
         logger.debug(`🔄 Processing: ${filePath}`);
       }
 
-      const artifacts = transformer(filePath, fileInput.code, finalOptions);
+      const artifacts = transformer(parsedFile, finalOptions);
 
       if (artifacts.length > 0) {
         processed++;
@@ -371,12 +373,17 @@ export async function runMigration(options: MigrateOptions): Promise<void> {
 
   if (!options.mixinsOnly) {
     await codemod.findModels();
-    codemod.findMixinsUsedByModels();
-    codemod.findModelExtensions();
   }
 
   if (!options.modelsOnly) {
     await codemod.findMixins();
+  }
+
+  codemod.parseAllFiles();
+
+  if (!options.mixinsOnly) {
+    codemod.findMixinsUsedByModels();
+    codemod.findModelExtensions();
   }
 
   const filesToProcess: number = codemod.input.mixins.size + codemod.input.models.size;
@@ -392,16 +399,13 @@ export async function runMigration(options: MigrateOptions): Promise<void> {
   logger.warn(`📋 Skipped ${codemod.input.skipped.length} files total`);
   logger.warn(`📋 Errors found while reading files: ${codemod.input.errors.length}`);
 
-  // Parse all files into intermediate structure for efficient processing
-  codemod.parseAllFiles();
-
   // Unfortunately a lot of the utils rely on the options object to carry a lot of the data currently
   // It'd take a lot of changes to make them use the codemod instance instead.
   finalOptions.allModelFiles = Array.from(codemod.input.parsedModels.keys());
   finalOptions.allMixinFiles = Array.from(codemod.input.parsedMixins.keys());
   finalOptions.modelsWithExtensions = codemod.modelsWithExtensions;
   finalOptions.modelConnectedMixins = codemod.mixinsImportedByModels;
-  preAnalyzeConnectedMixinExtensions(codemod.input.mixins, finalOptions);
+  preAnalyzeConnectedMixinExtensions(codemod.input.parsedMixins, finalOptions);
 
   // Process intermediate models to generate trait artifacts first
   // This must be done before processing regular models that extend these intermediate models
@@ -433,18 +437,18 @@ export async function runMigration(options: MigrateOptions): Promise<void> {
     }
   }
 
-  // Process model files
+  // Process model files using pre-parsed data
   const modelResults = await processFiles({
-    files: codemod.input.models,
+    parsedFiles: codemod.input.parsedModels,
     transformer: modelToArtifacts,
     finalOptions,
     logger,
     skipMessage: 'no artifacts generated',
   });
 
-  // Process mixin files
+  // Process mixin files using pre-parsed data
   const mixinResults = await processFiles({
-    files: codemod.input.mixins,
+    parsedFiles: codemod.input.parsedMixins,
     transformer: mixinToArtifacts,
     finalOptions,
     logger,

@@ -1,6 +1,6 @@
-import { existsSync } from 'fs';
 import type { Lang } from '@ast-grep/napi';
 import { Lang as AstLang } from '@ast-grep/napi';
+import { existsSync } from 'fs';
 import { dirname, resolve } from 'path';
 
 import type { TransformOptions } from '../config.js';
@@ -166,7 +166,7 @@ const DEFAULT_EXTENSIONS = ['.ts', '.js'];
  * Convert a glob/wildcard pattern to a regex
  * e.g., 'my-app/models/*' -> /^my-app/models\/(.*)$/
  */
-export function wildcardPatternToRegex(pattern: string): RegExp {
+function wildcardPatternToRegex(pattern: string): RegExp {
   return new RegExp('^' + pattern.replace(/\*/g, '(.*)') + '$');
 }
 
@@ -197,7 +197,7 @@ export function replaceWildcardPattern(pattern: string, value: string, replaceme
 /**
  * Try to find a file with various extensions
  */
-export function resolveWithExtensions(basePath: string, extensions: string[] = DEFAULT_EXTENSIONS): string | null {
+function resolveWithExtensions(basePath: string, extensions: string[] = DEFAULT_EXTENSIONS): string | null {
   // First try the base path as-is
   if (existsSync(basePath)) {
     return basePath;
@@ -208,6 +208,14 @@ export function resolveWithExtensions(basePath: string, extensions: string[] = D
     const pathWithExt = `${basePath}${ext}`;
     if (existsSync(pathWithExt)) {
       return pathWithExt;
+    }
+  }
+
+  // Try index files (e.g., basePath/index.ts, basePath/index.js)
+  for (const ext of extensions) {
+    const indexPath = resolve(basePath, 'index' + ext);
+    if (existsSync(indexPath)) {
+      return indexPath;
     }
   }
 
@@ -323,21 +331,3 @@ export function getImportSourceConfig(sourceType: 'model' | 'mixin', options?: T
   };
 }
 
-/**
- * Resolve import paths using multiple source configurations
- * Used when both model and mixin sources should be checked
- */
-export function resolveImportPathWithFallbacks(
-  importPath: string,
-  configs: ImportSourceConfig[],
-  currentFilePath?: string,
-  baseDir?: string
-): string | null {
-  for (const config of configs) {
-    const resolved = resolveImportPath(importPath, config, currentFilePath, baseDir);
-    if (resolved) {
-      return resolved;
-    }
-  }
-  return null;
-}

@@ -27,14 +27,11 @@ export {
   getLanguageFromPath,
   getFileExtension,
   indentCode,
-  wildcardPatternToRegex,
   replaceWildcardPattern,
-  resolveWithExtensions,
   resolveRelativeImport,
   resolveImportPath,
   isImportFromSource,
   getImportSourceConfig,
-  resolveImportPathWithFallbacks,
 } from './path-utils.js';
 export type { ImportSourceConfig } from './path-utils.js';
 
@@ -43,10 +40,7 @@ export {
   DEFAULT_MIXIN_SOURCE,
   BUILT_IN_TYPE_MAPPINGS,
   getTypeScriptTypeForAttribute,
-  getTypeScriptTypeForBelongsTo,
-  getTypeScriptTypeForHasMany,
   schemaFieldToTypeScriptType,
-  extractImportsFromType,
   extractTypeFromDeclaration,
   extractTypeFromDecorator,
   extractTypeFromMethod,
@@ -56,7 +50,6 @@ export type { ExtractedType, SchemaFieldForType } from './type-utils.js';
 
 // Re-export from ast-helpers
 export {
-  findExportStatements,
   findDefaultExport,
   findClassDeclaration,
   getExportedIdentifier,
@@ -64,7 +57,6 @@ export {
   parseObjectLiteralFromNode,
   parseObjectPropertiesFromNode,
   parseObjectLiteral,
-  extractExistingImports,
   withTransformWrapper,
   findAssociatedInterface,
   getEmberDataImports,
@@ -77,23 +69,21 @@ export {
   generateExportStatement,
   schemaFieldToLegacyFormat,
   buildLegacySchemaObject,
-  generateTraitSchemaCode,
   convertToSchemaField,
   generateInterfaceCode,
   createTypeArtifact,
-  createExtensionArtifact,
   createExtensionArtifactWithTypes,
-  traitNameToInterfaceName,
-  traitNameToImportPath,
   generateMergedSchemaCode,
-  generateMergedTraitSchemaCode,
+  collectRelationshipImports,
+  collectTraitImports,
+  mapFieldsToTypeProperties,
+  buildTraitSchemaObject,
 } from './schema-generation.js';
 export type {
   TransformArtifact,
   PropertyInfo,
   SchemaField,
   MergedSchemaOptions,
-  MergedTraitSchemaOptions,
 } from './schema-generation.js';
 
 // Re-export from import-utils
@@ -105,11 +95,9 @@ export {
   getModelImportSource,
   getResourcesImport,
   transformModelToResourceImport,
-  extractTypeNameMapping,
   isModelImportPath,
   isMixinImportPath,
   isSpecialMixinImport,
-  resolveRelativeImport as resolveRelativeImportPath,
   isMixinFile,
   isModelFile,
   findEmberImportLocalName,

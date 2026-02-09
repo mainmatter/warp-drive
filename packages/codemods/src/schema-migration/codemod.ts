@@ -5,8 +5,6 @@ import { basename, extname, join, resolve } from 'path';
 
 import type { FinalOptions } from './config.js';
 import { analyzeModelMixinUsage } from './processors/mixin-analyzer.js';
-import { willModelHaveExtension } from './processors/model.js';
-import { extractBaseName } from './utils/ast-utils.js';
 import type { ParsedFile } from './utils/file-parser.js';
 import { parseFile } from './utils/file-parser.js';
 import type { Logger } from './utils/logger.js';
@@ -134,11 +132,11 @@ export class Codemod {
 
   findModelExtensions() {
     this.logger.info(`🔍 Analyzing which models will have extensions...`);
-    for (const [modelFile, modelInput] of this.input.models) {
+    for (const [modelFile, parsedModel] of this.input.parsedModels) {
       try {
-        if (willModelHaveExtension(modelFile, modelInput.code, this.finalOptions)) {
-          const modelBaseName = extractBaseName(modelFile);
-          this.modelsWithExtensions.add(modelBaseName);
+        // Use pre-parsed data instead of re-parsing
+        if (parsedModel.hasExtension) {
+          this.modelsWithExtensions.add(parsedModel.baseName);
         }
       } catch (error) {
         this.logger.error(`❌ Error analyzing model ${modelFile} for extensions: ${String(error)}`);

@@ -4,8 +4,10 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 
 import type { TransformOptions } from '../config.js';
-import type { ExtractedType, PropertyInfo, SchemaFieldForType, TransformArtifact } from '../utils/ast-utils.js';
+import type { ExtractedType, PropertyInfo, SchemaField, SchemaFieldForType, TransformArtifact } from '../utils/ast-utils.js';
 import {
+  buildTraitSchemaObject,
+  collectTraitImports,
   createExtensionFromOriginalFile,
   debugLog,
   DEFAULT_EMBER_DATA_SOURCE,
@@ -18,14 +20,13 @@ import {
   findDefaultExport,
   findEmberImportLocalName,
   generateExportStatement,
-  generateMergedTraitSchemaCode,
-  generateTraitImport,
+  generateMergedSchemaCode,
   getEmberDataImports,
   getExportedIdentifier,
   getFieldKindFromDecorator,
   getFileExtension,
   getLanguageFromPath,
-  schemaFieldToTypeScriptType,
+  mapFieldsToTypeProperties,
   toPascalCase,
   withTransformWrapper,
 } from '../utils/ast-utils.js';
@@ -33,11 +34,9 @@ import {
   extractFieldNameFromKey,
   findObjectArgument,
   findStringArgument,
-  NODE_KIND_ARROW_FUNCTION,
+  isObjectMethodSyntax,
   NODE_KIND_AS_EXPRESSION,
   NODE_KIND_CALL_EXPRESSION,
-  NODE_KIND_COMPUTED_PROPERTY_NAME,
-  NODE_KIND_FUNCTION,
   NODE_KIND_IDENTIFIER,
   NODE_KIND_LEXICAL_DECLARATION,
   NODE_KIND_MEMBER_EXPRESSION,
@@ -48,6 +47,7 @@ import {
   NODE_KIND_VARIABLE_DECLARATOR,
   parseObjectPropertiesFromNode,
 } from '../utils/code-processing.js';
+import type { ParsedFile } from '../utils/file-parser.js';
 import { mixinNameToKebab, pascalToKebab } from '../utils/string.js';
 
 /** Mixin.create() method name */
@@ -56,88 +56,6 @@ const MIXIN_METHOD_CREATE = 'create';
 /** Mixin.createWithMixins() method name */
 const MIXIN_METHOD_CREATE_WITH_MIXINS = 'createWithMixins';
 
-/** Async keyword with trailing space */
-const KEYWORD_ASYNC = 'async ';
-
-/** Generator function pattern */
-const KEYWORD_GENERATOR_FUNCTION = 'function*';
-
-/** Generator asterisk pattern */
-const KEYWORD_GENERATOR_ASTERISK = '*';
-
-/** Getter keyword */
-const KEYWORD_GET = 'get';
-
-/** Setter keyword */
-const KEYWORD_SET = 'set';
-
-/**
- * Checks if the property key represents a getter or setter
- */
-function isGetterOrSetterKey(keyText: string): boolean {
-  return keyText === KEYWORD_GET || keyText === KEYWORD_SET;
-}
-
-/**
- * Checks if the property value is an async method or generator function
- */
-function isAsyncOrGeneratorMethod(value: SgNode, propertyText: string): boolean {
-  const valueKind = value.kind();
-  if (valueKind !== NODE_KIND_FUNCTION && valueKind !== NODE_KIND_ARROW_FUNCTION) {
-    return false;
-  }
-  return (
-    propertyText.includes(KEYWORD_ASYNC) ||
-    propertyText.includes(KEYWORD_GENERATOR_FUNCTION) ||
-    propertyText.includes(KEYWORD_GENERATOR_ASTERISK)
-  );
-}
-
-/**
- * Checks if this is a computed property with a function value
- */
-function isComputedPropertyWithFunction(property: SgNode): boolean {
-  const key = property.field('key');
-  if (key?.kind() !== NODE_KIND_COMPUTED_PROPERTY_NAME) {
-    return false;
-  }
-  const value = property.field('value');
-  return value?.kind() === NODE_KIND_FUNCTION;
-}
-
-/**
- * Determines if an AST node represents object method syntax that doesn't need key: value format
- * Handles: methods, getters, setters, async methods, generators, computed properties
- */
-function isObjectMethodSyntax(property: SgNode): boolean {
-  const propertyKind = property.kind();
-
-  // Method definitions: methodName() { ... }
-  if (propertyKind === NODE_KIND_METHOD_DEFINITION) {
-    return true;
-  }
-
-  // Check for getter/setter: get/set propertyName() { ... }
-  if (propertyKind === NODE_KIND_PAIR) {
-    const key = property.field('key');
-    if (key && isGetterOrSetterKey(key.text())) {
-      return true;
-    }
-
-    // Check for async methods: async methodName() { ... }
-    const value = property.field('value');
-    if (value && isAsyncOrGeneratorMethod(value, property.text())) {
-      return true;
-    }
-
-    // Check for computed property names: [computedKey]: value or [computedKey]() { ... }
-    if (isComputedPropertyWithFunction(property)) {
-      return true;
-    }
-  }
-
-  return false;
-}
 
 /**
  * Check if a resource type file exists and create a stub if it doesn't
@@ -211,238 +129,150 @@ export default function transform(filePath: string, source: string, options: Tra
  * This does not modify the original source. The CLI can use this to write
  * files to the requested output directories.
  */
-export function toArtifacts(filePath: string, source: string, options: TransformOptions): TransformArtifact[] {
-  // Process all mixins - polymorphic mixins may not be "connected" but still need traits for relationships
+export function toArtifacts(parsedFile: ParsedFile, options: TransformOptions): TransformArtifact[] {
+  const { path: filePath, source, baseName, camelName: mixinName } = parsedFile;
 
-  const lang = getLanguageFromPath(filePath);
-
-  try {
-    const ast = parse(lang, source);
-    const root = ast.root();
-
-    // Verify this is an ember mixin file we should consider
-    const expectedSources = [DEFAULT_MIXIN_SOURCE];
-    const mixinImportLocal = findEmberImportLocalName(root, expectedSources, options, filePath, process.cwd());
-
-    if (!mixinImportLocal) {
-      debugLog(options, 'No mixin import found, returning empty artifacts');
-      return [];
-    }
-
-    debugLog(options, `Found mixin import: ${mixinImportLocal}`);
-
-    // Validate there is a default export referencing Mixin.create(...)
-    const defaultExportNode = findDefaultExport(root, options);
-    if (!defaultExportNode) {
-      debugLog(options, 'No default export found, returning empty artifacts');
-      if (filePath.includes('base-model.ts')) {
-        debugLog(options, `DEBUG base-model.ts: NO DEFAULT EXPORT FOUND - returning empty artifacts`);
-      }
-      return [];
-    }
-
-    debugLog(options, 'Found default export, checking if it uses mixin');
-
-    const isDirect = isDirectMixinCreateExport(defaultExportNode, mixinImportLocal);
-    let ok = isDirect;
-
-    debugLog(options, `Direct mixin create export: ${isDirect}`);
-
-    if (!ok) {
-      const exportedIdentifier = getExportedIdentifier(defaultExportNode, options);
-
-      if (
-        exportedIdentifier &&
-        isIdentifierInitializedByMixinCreate(root, exportedIdentifier, mixinImportLocal, options)
-      ) {
-        ok = true;
-      }
-    }
-
-    debugLog(options, `Mixin validation passed: ${ok}`);
-
-    if (!ok) {
-      debugLog(options, 'Not a valid mixin structure, returning empty artifacts');
-      return [];
-    }
-
-    // Collect decorators and properties
-    const baseName = extractBaseName(filePath); // kebab-case
-    const mixinName = extractCamelCaseName(filePath); // camelCase
-    const emberDataSources = [options?.emberDataImportSource || DEFAULT_EMBER_DATA_SOURCE];
-    const emberDataImports = getEmberDataImports(root, emberDataSources, options);
-
-    debugLog(options, `Processing mixin: ${mixinName} (${baseName})`);
-
-    const { traitFields, extensionProperties, extendedTraits } = extractTraitFields(
-      root,
-      emberDataImports,
-      mixinImportLocal,
-      mixinName,
-      filePath,
-      options
-    );
-
-    if (mixinName.toLowerCase().includes('basemodel')) {
-      debugLog(
-        options,
-        `🔍 BASEMODEL DEBUG: Found ${extendedTraits.length} extended traits: ${extendedTraits.join(', ')}`
-      );
-      debugLog(options, `🔍 BASEMODEL DEBUG: Found ${traitFields.length} trait fields`);
-      debugLog(options, `🔍 BASEMODEL DEBUG: Found ${extensionProperties.length} extension properties`);
-    }
-
-    debugLog(
-      options,
-      `Extract result: ${traitFields.length} trait fields, ${extensionProperties.length} extension properties, ${extendedTraits.length} extended traits`
-    );
-
-    // Check if this mixin is connected to models (directly or transitively)
-    // In test environment, treat all mixins as connected unless explicitly specified
-    const isConnectedToModel =
-      options?.modelConnectedMixins?.has(filePath) ?? (process.env.NODE_ENV === 'test' || options?.testMode === true);
-
-    if (!isConnectedToModel) {
-      debugLog(options, `Skipping ${mixinName}: not connected to any models`);
-      return [];
-    }
-
-    // Continue with artifact generation even if empty - needed for polymorphic relationships
-
-    const artifacts: TransformArtifact[] = [];
-    const fileExtension = getFileExtension(filePath);
-    const isTypeScript = fileExtension === '.ts';
-
-    // Always generate trait type interface, even for empty mixins (needed for polymorphic relationships)
-    const traitInterfaceName = `${mixinName.charAt(0).toUpperCase() + mixinName.slice(1)}Trait`;
-
-    // Convert trait fields to TypeScript interface properties
-    const traitFieldTypes = traitFields.map((field) => {
-      return {
-        name: field.name,
-        type: schemaFieldToTypeScriptType(field as SchemaFieldForType, options),
-        readonly: false,
-      };
-    });
-
-    // Collect imports needed for the trait type interface
-    const imports = new Set<string>();
-    const modelTypes = new Set<string>();
-
-    // Collect model types and HasMany imports needed for relationships
-    for (const field of traitFields) {
-      if (field.kind === 'belongsTo' || field.kind === 'hasMany') {
-        if (field.type) {
-          modelTypes.add(field.type);
-        }
-
-        // Add HasMany type imports for hasMany relationships
-        if (field.kind === 'hasMany') {
-          const emberDataSource = options?.emberDataImportSource || DEFAULT_EMBER_DATA_SOURCE;
-          if (field.options?.async) {
-            imports.add(`type { AsyncHasMany } from '${emberDataSource}'`);
-          } else {
-            imports.add(`type { HasMany } from '${emberDataSource}'`);
-          }
-        }
-      }
-    }
-
-    if (modelTypes.size > 0) {
-      // Import each model type from its resource schema file
-      for (const modelType of modelTypes) {
-        const pascalCaseType = toPascalCase(modelType);
-
-        // Check if the resource type file exists and create a stub if it doesn't
-        // Only generate stubs if resourcesDir is provided (indicating we're in a real project context)
-        if (options.resourcesDir) {
-          ensureResourceTypeFileExists(modelType, options, artifacts);
-        }
-
-        imports.add(`type { ${pascalCaseType} } from '${options.resourcesImport}/${modelType}.schema'`);
-      }
-    }
-
-    if (extendedTraits.length > 0) {
-      for (const trait of extendedTraits) {
-        imports.add(generateTraitImport(trait, options));
-      }
-    }
-
-    // Build the trait schema object
-    const traitSchemaName = traitInterfaceName;
-    const traitInternalName = pascalToKebab(mixinName);
-    const traitSchemaObject: Record<string, unknown> = {
-      name: traitInternalName,
-      mode: 'legacy',
-      fields: traitFields.map((field) => {
-        const result: Record<string, unknown> = { name: field.name, kind: field.kind };
-        if (field.type) {
-          result.type = field.type;
-        }
-        if (field.options) {
-          result.options = field.options;
-        }
-        return result;
-      }),
-    };
-
-    // Add traits property if this trait extends other traits
-    if (extendedTraits.length > 0) {
-      traitSchemaObject.traits = extendedTraits;
-    }
-
-    // Generate merged trait schema code (schema + types in one file)
-    const mergedTraitSchemaCode = generateMergedTraitSchemaCode({
-      baseName,
-      traitInterfaceName,
-      schemaName: traitSchemaName,
-      schemaObject: traitSchemaObject,
-      properties: traitFieldTypes,
-      traits: extendedTraits,
-      imports,
-      isTypeScript,
-    });
-
-    artifacts.push({
-      type: 'trait',
-      name: traitSchemaName,
-      code: mergedTraitSchemaCode,
-      suggestedFileName: `${baseName}.schema${fileExtension}`,
-    });
-
-    // Create extension artifact for mixins that have extension properties
-    // For mixins, extensions should extend the trait interface
-    if (extensionProperties.length > 0) {
-      const traitImportPath = options?.traitsImport
-        ? `${options.traitsImport}/${baseName}.schema`
-        : `../traits/${baseName}.schema`;
-      const extensionArtifact = createExtensionFromOriginalFile(
-        filePath,
-        source,
-        baseName,
-        `${mixinName}Extension`,
-        extensionProperties,
-        defaultExportNode,
-        options,
-        traitInterfaceName,
-        traitImportPath,
-        'mixin', // Source is a mixin file
-        undefined, // processImports - not used for mixins
-        'trait' // Extension context - trait extensions go to traitsDir
-      );
-
-      if (extensionArtifact) {
-        artifacts.push(extensionArtifact);
-      }
-    }
-
-    debugLog(options, `Generated ${artifacts.length} artifacts`);
-    return artifacts;
-  } catch (error) {
-    debugLog(options, `Error processing mixin: ${String(error)}`);
+  if (parsedFile.fileType !== 'mixin') {
+    debugLog(options, 'Not a mixin file, returning empty artifacts');
     return [];
   }
+
+  const traitFields = parsedFile.fields.map((f) => ({
+    name: f.name,
+    kind: f.kind,
+    type: f.type,
+    options: f.options,
+  }));
+
+  const extensionProperties: PropertyInfo[] = parsedFile.behaviors.map((b) => ({
+    name: b.name,
+    originalKey: b.originalKey,
+    value: b.value,
+    typeInfo: b.typeInfo,
+    isObjectMethod: b.isObjectMethod,
+  }));
+
+  const extendedTraits = [...parsedFile.traits];
+
+  // Check if this mixin is connected to models (directly or transitively)
+  // In test environment, treat all mixins as connected unless explicitly specified
+  const isConnectedToModel =
+    options?.modelConnectedMixins?.has(filePath) ?? (process.env.NODE_ENV === 'test' || options?.testMode === true);
+
+  if (!isConnectedToModel) {
+    debugLog(options, `Skipping ${mixinName}: not connected to any models`);
+    return [];
+  }
+
+  return generateMixinArtifacts(filePath, source, baseName, mixinName, traitFields, extensionProperties, extendedTraits, options);
+}
+
+/**
+ * Shared artifact generation logic
+ */
+function generateMixinArtifacts(
+  filePath: string,
+  source: string,
+  baseName: string,
+  mixinName: string,
+  traitFields: Array<{ name: string; kind: string; type?: string; options?: Record<string, unknown> }>,
+  extensionProperties: PropertyInfo[],
+  extendedTraits: string[],
+  options: TransformOptions
+): TransformArtifact[] {
+  const artifacts: TransformArtifact[] = [];
+  const fileExtension = getFileExtension(filePath);
+  const isTypeScript = fileExtension === '.ts';
+
+  const traitInterfaceName = `${mixinName.charAt(0).toUpperCase() + mixinName.slice(1)}Trait`;
+
+  const traitFieldTypes = mapFieldsToTypeProperties(traitFields as SchemaField[], options, false);
+
+  const imports = new Set<string>();
+  const modelTypes = new Set<string>();
+
+  for (const field of traitFields) {
+    if (field.kind === 'belongsTo' || field.kind === 'hasMany') {
+      if (field.type) {
+        modelTypes.add(field.type);
+      }
+
+      if (field.kind === 'hasMany') {
+        const emberDataSource = options?.emberDataImportSource || DEFAULT_EMBER_DATA_SOURCE;
+        if (field.options?.async) {
+          imports.add(`type { AsyncHasMany } from '${emberDataSource}'`);
+        } else {
+          imports.add(`type { HasMany } from '${emberDataSource}'`);
+        }
+      }
+    }
+  }
+
+  if (modelTypes.size > 0) {
+    for (const modelType of modelTypes) {
+      const pascalCaseType = toPascalCase(modelType);
+
+      if (options.resourcesDir) {
+        ensureResourceTypeFileExists(modelType, options, artifacts);
+      }
+
+      imports.add(`type { ${pascalCaseType} } from '${options.resourcesImport}/${modelType}.schema'`);
+    }
+  }
+
+  collectTraitImports(extendedTraits, imports, options);
+
+  const traitSchemaName = traitInterfaceName;
+  const traitInternalName = pascalToKebab(mixinName);
+  const traitSchemaObject = buildTraitSchemaObject(
+    traitFields as SchemaField[],
+    extendedTraits,
+    { name: traitInternalName, mode: 'legacy' }
+  );
+
+  const mergedTraitSchemaCode = generateMergedSchemaCode({
+    baseName,
+    interfaceName: traitInterfaceName,
+    schemaName: traitSchemaName,
+    schemaObject: traitSchemaObject,
+    properties: traitFieldTypes,
+    traits: extendedTraits,
+    imports,
+    isTypeScript,
+  });
+
+  artifacts.push({
+    type: 'trait',
+    name: traitSchemaName,
+    code: mergedTraitSchemaCode,
+    suggestedFileName: `${baseName}.schema${fileExtension}`,
+  });
+
+  if (extensionProperties.length > 0) {
+    const traitImportPath = options?.traitsImport
+      ? `${options.traitsImport}/${baseName}.schema`
+      : `../traits/${baseName}.schema`;
+    const extensionArtifact = createExtensionFromOriginalFile(
+      filePath,
+      source,
+      baseName,
+      `${mixinName}Extension`,
+      extensionProperties,
+      options,
+      traitInterfaceName,
+      traitImportPath,
+      'mixin',
+      undefined,
+      'trait'
+    );
+
+    if (extensionArtifact) {
+      artifacts.push(extensionArtifact);
+    }
+  }
+
+  debugLog(options, `Generated ${artifacts.length} artifacts`);
+  return artifacts;
 }
 
 /**
