@@ -731,7 +731,7 @@ function detectFileType(root: SgNode, filePath: string, options: TransformOption
   // Check for model
   const modelSources = [
     options.emberDataImportSource || DEFAULT_EMBER_DATA_SOURCE,
-    options.baseModel?.import,
+    ...(options.importSubstitutes?.map((s) => s.import) ?? []),
     WARP_DRIVE_MODEL,
   ].filter(Boolean) as string[];
 

@@ -65,11 +65,11 @@ export interface TransformOptions {
   /** Generate resource schemas for external (non-local) model files */
   generateExternalResources?: boolean;
 
-  baseModel?: {
+  importSubstitutes?: Array<{
     import: string;
     extension?: string;
-    trait: string;
-  };
+    trait?: string;
+  }>;
 }
 
 export interface MigrateOptions extends Partial<TransformOptions> {

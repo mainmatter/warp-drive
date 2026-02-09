@@ -152,6 +152,28 @@
       "type": "string",
       "description": "Path to Prettier configuration file (optional, uses project defaults)"
     },
+    "importSubstitutes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "import": {
+            "type": "string",
+            "description": "Import path for the custom base class (e.g., 'my-app/models/base-model')"
+          },
+          "extension": {
+            "type": "string",
+            "description": "Extension name to add to models extending this base class"
+          },
+          "trait": {
+            "type": "string",
+            "description": "Trait name to add to models extending this base class"
+          }
+        },
+        "required": ["import"]
+      },
+      "description": "Array of custom base class configurations. Models importing from these paths are recognized as model files, with optional trait/extension injection."
+    },
     "storeType": {
       "type": "object",
       "description": "Configuration for the Store type to include in generated intermediate model traits. If not specified, store property is not added to traits.",

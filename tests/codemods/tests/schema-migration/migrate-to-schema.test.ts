@@ -762,11 +762,11 @@ export default class TestModel extends BaseModel {
 
     await runMigration({
       ...options,
-      baseModel: {
+      importSubstitutes: [{
         import: 'test-app/models/base-model',
         extension: 'static-base-model-extension',
         trait: 'static-base-model-trait',
-      }
+      }]
     });
     const dataDir = join(tempDir, 'app/data');
     expect(collectFilesSnapshot(dataDir)['resources/typed.schema.ts']).toBeTruthy();
@@ -837,11 +837,11 @@ export default class TestModel extends BaseModel {
 
     await runMigration({
       ...options,
-      baseModel: {
+      importSubstitutes: [{
         import: 'test-app/models/base-model',
         extension: 'static-base-model-extension',
         trait: 'static-base-model-trait',
-      }
+      }]
     });
     const dataDir = join(tempDir, 'app/data');
     expect(collectFilesSnapshot(dataDir)['resources/typed.schema.ts']).toBeTruthy();
@@ -918,11 +918,11 @@ export default class TestModel extends BaseModel {
     await runMigration({
       ...options,
       emberDataImportSource: '@ember-data/model',
-      baseModel: {
+      importSubstitutes: [{
         import: 'soxhub-client/core/base-model',
         extension: 'static-base-model-extension',
         trait: 'static-base-model-trait',
-      }
+      }]
     });
     const dataDir = join(tempDir, 'app/data');
     expect(collectFilesSnapshot(dataDir)['resources/typed.schema.ts']).toBeTruthy();

@@ -573,8 +573,8 @@ export function isModelFile(filePath: string, source: string, options?: Transfor
     if (options?.emberDataImportSource) {
       baseModelSources.push(options.emberDataImportSource);
     }
-    if (options?.baseModel?.import) {
-      baseModelSources.push(options.baseModel.import);
+    if (options?.importSubstitutes) {
+      baseModelSources.push(...options.importSubstitutes.map((s) => s.import));
     }
     // Add default EmberData sources
     baseModelSources.push('@ember-data/model', '@warp-drive/model', '@auditboard/warp-drive/v1/model');

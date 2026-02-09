@@ -8,7 +8,13 @@
   "mirror": false,
   "emberDataImportSource": "@ember-data/model",
   "appImportPrefix": "my-app",
-  "baseModelImportPath": "my-app/core/base-model",
+  "importSubstitutes": [
+    {
+      "import": "my-app/core/base-model",
+      "trait": "base-model-trait",
+      "extension": "base-model-extension"
+    }
+  ],
   "modelImportSource": "my-app/models",
   "resourcesImport": "my-app/data/resources",
   "traitsDir": "./generated/traits",

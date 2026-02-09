@@ -25,6 +25,7 @@ export interface ConfigOptions {
   mixinsOnly?: boolean;
   skipProcessed?: boolean;
   generateExternalResources?: boolean;
+  importSubstitutes?: Array<{ import: string; extension?: string; trait?: string }>;
   config?: string;
   input?: string;
   inputDir?: string;

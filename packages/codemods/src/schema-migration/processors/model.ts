@@ -176,7 +176,7 @@ interface ExtractedType {
 function getExpectedModelImportSources(options: TransformOptions): string[] {
   return [
     options?.emberDataImportSource || DEFAULT_EMBER_DATA_SOURCE,
-    options?.baseModel?.import || '',
+    ...(options?.importSubstitutes?.map((s) => s.import) ?? []),
     WARP_DRIVE_MODEL,
     FRAGMENT_DECORATOR_SOURCE,
     FRAGMENT_BASE_SOURCE,
@@ -324,20 +324,22 @@ function extractHeritageInfo(
       mixinTraits.push(...intermediateTraits);
     }
 
-    if (options?.baseModel?.import) {
-      const baseModelLocalName = findEmberImportLocalName(
-        root,
-        [options.baseModel.import],
-        options,
-        undefined,
-        process.cwd()
-      );
-      if (baseModelLocalName && heritageClause.text().includes(baseModelLocalName)) {
-        if (options.baseModel.trait) {
-          mixinTraits.push(options.baseModel.trait);
-        }
-        if (options.baseModel.extension) {
-          mixinExtensions.push(options.baseModel.extension);
+    if (options?.importSubstitutes) {
+      for (const substitute of options.importSubstitutes) {
+        const localName = findEmberImportLocalName(
+          root,
+          [substitute.import],
+          options,
+          undefined,
+          process.cwd()
+        );
+        if (localName && heritageClause.text().includes(localName)) {
+          if (substitute.trait) {
+            mixinTraits.push(substitute.trait);
+          }
+          if (substitute.extension) {
+            mixinExtensions.push(substitute.extension);
+          }
         }
       }
     }
