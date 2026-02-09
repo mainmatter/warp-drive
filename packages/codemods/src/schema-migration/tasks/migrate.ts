@@ -193,7 +193,7 @@ function buildOutputFileName(
  */
 function getOutputDirectory(artifactType: string, options: TransformOptions): string {
   const config = ARTIFACT_CONFIG[artifactType as ArtifactType] ?? DEFAULT_FALLBACK_CONFIG;
-  return (options[config.directoryKey]) ?? config.defaultDir;
+  return options[config.directoryKey] ?? config.defaultDir;
 }
 
 /**
@@ -392,13 +392,15 @@ export async function runMigration(options: MigrateOptions): Promise<void> {
   logger.warn(`📋 Skipped ${codemod.input.skipped.length} files total`);
   logger.warn(`📋 Errors found while reading files: ${codemod.input.errors.length}`);
 
+  // Parse all files into intermediate structure for efficient processing
+  codemod.parseAllFiles();
+
   // Unfortunately a lot of the utils rely on the options object to carry a lot of the data currently
   // It'd take a lot of changes to make them use the codemod instance instead.
-  finalOptions.allModelFiles = Object.keys(codemod.input.models);
-  finalOptions.allMixinFiles = Object.keys(codemod.input.mixins);
+  finalOptions.allModelFiles = Array.from(codemod.input.parsedModels.keys());
+  finalOptions.allMixinFiles = Array.from(codemod.input.parsedMixins.keys());
   finalOptions.modelsWithExtensions = codemod.modelsWithExtensions;
   finalOptions.modelConnectedMixins = codemod.mixinsImportedByModels;
-  finalOptions.modelsWithExtensions = codemod.modelsWithExtensions;
   preAnalyzeConnectedMixinExtensions(codemod.input.mixins, finalOptions);
 
   // Process intermediate models to generate trait artifacts first

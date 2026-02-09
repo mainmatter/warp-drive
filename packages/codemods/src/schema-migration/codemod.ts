@@ -7,6 +7,8 @@ import type { FinalOptions } from './config.js';
 import { analyzeModelMixinUsage } from './processors/mixin-analyzer.js';
 import { willModelHaveExtension } from './processors/model.js';
 import { extractBaseName } from './utils/ast-utils.js';
+import type { ParsedFile } from './utils/file-parser.js';
+import { parseFile } from './utils/file-parser.js';
 import type { Logger } from './utils/logger.js';
 import { FILE_EXTENSION_REGEX, TRAILING_SINGLE_WILDCARD_REGEX, TRAILING_WILDCARD_REGEX } from './utils/string.js';
 
@@ -105,6 +107,8 @@ async function findFiles(
 export class Input {
   models: Map<Filename, InputFile> = new Map();
   mixins: Map<Filename, InputFile> = new Map();
+  parsedModels: Map<Filename, ParsedFile> = new Map();
+  parsedMixins: Map<Filename, ParsedFile> = new Map();
   skipped: string[] = [];
   errors: Error[] = [];
 }
@@ -141,6 +145,38 @@ export class Codemod {
       }
     }
     this.logger.info(`✅ Found ${this.modelsWithExtensions.size} models with extensions.`);
+  }
+
+  parseAllFiles() {
+    this.logger.info(`🔄 Parsing all files into intermediate structure...`);
+
+    let modelsParsed = 0;
+    let mixinsParsed = 0;
+    let parseErrors = 0;
+
+    for (const [filePath, inputFile] of this.input.models) {
+      try {
+        const parsed = parseFile(filePath, inputFile.code, this.finalOptions);
+        this.input.parsedModels.set(filePath, parsed);
+        modelsParsed++;
+      } catch (error) {
+        this.logger.error(`❌ Error parsing model ${filePath}: ${String(error)}`);
+        parseErrors++;
+      }
+    }
+
+    for (const [filePath, inputFile] of this.input.mixins) {
+      try {
+        const parsed = parseFile(filePath, inputFile.code, this.finalOptions);
+        this.input.parsedMixins.set(filePath, parsed);
+        mixinsParsed++;
+      } catch (error) {
+        this.logger.error(`❌ Error parsing mixin ${filePath}: ${String(error)}`);
+        parseErrors++;
+      }
+    }
+
+    this.logger.info(`✅ Parsed ${modelsParsed} models and ${mixinsParsed} mixins (${parseErrors} errors).`);
   }
 
   createDestinationDirectories() {
