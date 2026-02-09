@@ -31,8 +31,8 @@ interface Artifact {
 
 interface ProcessingResult {
   processed: number;
-  skipped: number;
-  errors: number;
+  skipped: string[];
+  errors: string[];
 }
 
 type ArtifactType = 'schema' | 'trait' | 'resource-extension' | 'trait-extension';
@@ -289,8 +289,6 @@ interface ProcessFilesOptions {
   transformer: ArtifactTransformer;
   finalOptions: FinalOptions;
   logger: Logger;
-  /** Message shown when a file is skipped */
-  skipMessage: string;
 }
 
 /**
@@ -302,11 +300,10 @@ async function processFiles({
   transformer,
   finalOptions,
   logger,
-  skipMessage,
 }: ProcessFilesOptions): Promise<ProcessingResult> {
   let processed = 0;
-  let skipped = 0;
-  let errors = 0;
+  let skipped = [];
+  let errors = [];
 
   for (const [filePath, parsedFile] of parsedFiles) {
     try {
@@ -329,13 +326,10 @@ async function processFiles({
           });
         }
       } else {
-        skipped++;
-        if (finalOptions.verbose) {
-          logger.debug(`⏭️  Skipped (${skipMessage}): ${filePath}`);
-        }
+        skipped.push(filePath);
       }
     } catch (error) {
-      errors++;
+      errors.push(filePath);
       logger.error(`❌ Error processing ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
@@ -443,7 +437,6 @@ export async function runMigration(options: MigrateOptions): Promise<void> {
     transformer: modelToArtifacts,
     finalOptions,
     logger,
-    skipMessage: 'no artifacts generated',
   });
 
   // Process mixin files using pre-parsed data
@@ -452,17 +445,18 @@ export async function runMigration(options: MigrateOptions): Promise<void> {
     transformer: mixinToArtifacts,
     finalOptions,
     logger,
-    skipMessage: 'not a model mixin',
   });
 
   // Aggregate results
   const processed = modelResults.processed + mixinResults.processed;
-  const skipped = modelResults.skipped + mixinResults.skipped;
-  const errors = modelResults.errors + mixinResults.errors;
+  const skipped = modelResults.skipped.length + mixinResults.skipped.length;
+  const errors = modelResults.errors.length + mixinResults.errors.length;
 
   logger.info(`\n✅ Migration complete!`);
   logger.info(`   📊 Processed: ${processed}`);
-  logger.info(`   ⏭️  Skipped: ${skipped} - Mixins: ${mixinResults.skipped}, Models: ${modelResults.skipped}`);
+  logger.info(`   ⏭️  Skipped: ${skipped} - Mixins: ${mixinResults.skipped.length}, Models: ${modelResults.skipped.length}`);
+
+  logger.warn(`Skipped:\n   Mixins:\n ${mixinResults.skipped}\n   Models: ${modelResults.skipped}`);
   if (errors > 0) {
     logger.info(`   ❌ Errors: ${errors} files`);
   }
