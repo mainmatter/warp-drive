@@ -1,4 +1,4 @@
-import type { connectedMixins, modelToMixinsMap } from "./processors/mixin-analyzer";
+import type { connectedMixins, modelToMixinsMap } from './processors/mixin-analyzer';
 
 export interface TransformOptions {
   verbose?: boolean;

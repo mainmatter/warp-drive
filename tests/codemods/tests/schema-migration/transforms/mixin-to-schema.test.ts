@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-assignment */
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -761,7 +762,7 @@ export default Mixin.create({
 	name: attr('string')
 });`;
 
-      const options = {
+      options = {
         modelImportSource: 'test-app/models',
         resourcesImport: 'test-app/data/resources',
         resourcesDir: './test-output/resources',
@@ -803,7 +804,7 @@ export default Mixin.create({
 	name: attr('string')
 });`;
 
-      const options = {
+      options = {
         modelImportSource: 'test-app/models',
         resourcesImport: 'test-app/data/resources',
         resourcesDir: './test-output/resources',

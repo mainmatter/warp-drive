@@ -1,6 +1,6 @@
 import type { SgNode } from '@ast-grep/napi';
 import { parse } from '@ast-grep/napi';
-import { join, resolve } from 'path';
+import { dirname, join, relative, resolve, sep } from 'path';
 
 import type { TransformOptions } from '../config.js';
 import { debugLog, errorLog } from './logging.js';
@@ -143,15 +143,14 @@ function calculateRelativeImportPath(
   targetFilePath: string, // Extension file location
   importedFilePath: string // What the relative import points to
 ): string {
-  const path = require('path');
-  const sourceDir = path.dirname(sourceFilePath);
-  const absoluteImportPath = path.resolve(sourceDir, importedFilePath);
-  const targetDir = path.dirname(targetFilePath);
-  const newRelativePath = path.relative(targetDir, absoluteImportPath);
+  const sourceDir = dirname(sourceFilePath);
+  const absoluteImportPath = resolve(sourceDir, importedFilePath);
+  const targetDir = dirname(targetFilePath);
+  const newRelativePath = relative(targetDir, absoluteImportPath);
 
   // Normalize and ensure ./ or ../ prefix
   // Use forward slashes for import paths (even on Windows)
-  const normalized = newRelativePath.split(path.sep).join('/');
+  const normalized = newRelativePath.split(sep).join('/');
   return normalized.startsWith('.') ? normalized : './' + normalized;
 }
 

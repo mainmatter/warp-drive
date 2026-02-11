@@ -1,14 +1,17 @@
 import type { Command } from 'commander';
 import { Argument, Option } from 'commander';
 
+import type { RunOptions } from '../src/legacy-compat-builders/run.js';
 import type { MigrateOptions } from '../src/schema-migration/config.ts';
 import { type ConfigOptions, loadConfig, mergeOptions } from '../src/schema-migration/utils/config.js';
 import { logger } from '../utils/logger.js';
 import type { SharedCodemodOptions } from './index.js';
 
 export function createApplyCommand(program: Command) {
-  const applyCommand = program.command('apply').description('apply the given codemod to the target file paths')
-  .addArgument(new Argument('<codemod>').choices(['migrate-to-schema', 'legacy-compat-builders']));
+  const applyCommand = program
+    .command('apply')
+    .description('apply the given codemod to the target file paths')
+    .addArgument(new Argument('<codemod>').choices(['migrate-to-schema', 'legacy-compat-builders']));
 
   createMigrateToSchemaCommand(applyCommand);
   createLegacyCompatBuildersCommand(applyCommand);
@@ -84,16 +87,13 @@ function createLegacyCompatBuildersCommand(applyCommand: Command) {
         'Method name(s) to transform. By default, will transform all methods.'
       ).choices(['findAll', 'findRecord', 'query', 'queryRecord', 'saveRecord'])
     )
-    .action(async (patterns: string[] | string, options: SharedCodemodOptions & Record<string, unknown>) => {
+    .action(async (patterns: string[] | string, options: SharedCodemodOptions & RunOptions) => {
       logger.config(options);
       return handleLegacyCompatBuilders(patterns, options);
     });
 }
 
-async function handleLegacyCompatBuilders(
-  patterns: string[] | string,
-  options: SharedCodemodOptions & Record<string, unknown>
-) {
+async function handleLegacyCompatBuilders(patterns: string[] | string, options: SharedCodemodOptions & RunOptions) {
   const { runTransform } = await import('../src/legacy-compat-builders/run.js');
   const patternArray = Array.isArray(patterns) ? patterns : [patterns];
 
@@ -101,8 +101,8 @@ async function handleLegacyCompatBuilders(
     patterns: patternArray,
     dry: options.dry,
     ignore: options.ignore,
-    storeNames: (options.storeNames as string[]) ?? ['store'],
-    methods: options.methods as string[] | undefined,
+    storeNames: options.storeNames,
+    methods: options.methods,
   });
 }
 
@@ -125,9 +125,8 @@ async function handleMigrateToSchema(
     }
   }
 
-  const { verbose: _verboseRaw, ...restOptions } = options;
   const cliOptions: ConfigOptions = {
-    ...restOptions,
+    ...(options as ConfigOptions),
     inputDir,
     ...(options.dry !== undefined && { dryRun: Boolean(options.dry) }),
     ...(options.verbose !== undefined && { verbose: options.verbose === '1' || options.verbose === '2' }),

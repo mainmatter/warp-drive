@@ -301,12 +301,7 @@ export function validateConfigForTransform(
 /**
  * List of config properties that contain paths
  */
-const PATH_PROPERTIES: Array<keyof ConfigOptions> = [
-  'traitsDir',
-  'resourcesDir',
-  'modelSourceDir',
-  'mixinSourceDir',
-];
+const PATH_PROPERTIES: Array<keyof ConfigOptions> = ['traitsDir', 'resourcesDir', 'modelSourceDir', 'mixinSourceDir'];
 
 /**
  * Internal helper to resolve paths in configuration options relative to a base directory

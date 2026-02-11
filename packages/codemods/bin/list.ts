@@ -18,12 +18,15 @@ const codemods: CodemodConfig[] = [
 ];
 
 export function createListCommand(program: Command) {
-  program.command('list').description('list available codemods').action(() => {
-    const maxNameLength = Math.max(...codemods.map((config) => config.name.length));
-    for (const codemod of codemods) {
-      const paddedName = codemod.name.padEnd(maxNameLength, ' ');
-      // eslint-disable-next-line no-console
-      console.log(`${paddedName} - ${codemod.description}`);
-    }
-  });
+  program
+    .command('list')
+    .description('list available codemods')
+    .action(() => {
+      const maxNameLength = Math.max(...codemods.map((config) => config.name.length));
+      for (const codemod of codemods) {
+        const paddedName = codemod.name.padEnd(maxNameLength, ' ');
+        // eslint-disable-next-line no-console
+        console.log(`${paddedName} - ${codemod.description}`);
+      }
+    });
 }

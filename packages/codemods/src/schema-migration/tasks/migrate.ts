@@ -265,15 +265,13 @@ function writeIntermediateArtifacts(artifacts: Artifact[], finalOptions: FinalOp
   for (const artifact of artifacts) {
     // For intermediate artifacts, we use the suggested filename directly
     const outputDir = getOutputDirectory(artifact.type, finalOptions);
-    let outputPath: string;
-
     if (!artifact.suggestedFileName) {
       throw new Error("Couldn't get an artifact `suggestedFileName`");
     }
 
     const fileName = artifact.suggestedFileName;
 
-    outputPath = join(resolve(outputDir), fileName);
+    const outputPath = join(resolve(outputDir), fileName);
     writeArtifact(artifact, outputPath, {
       dryRun: finalOptions.dryRun ?? false,
       verbose: finalOptions.verbose ?? false,
@@ -295,15 +293,10 @@ interface ProcessFilesOptions {
  * Generic file processor for both models and mixins
  * Uses pre-parsed ParsedFile data for efficient processing
  */
-async function processFiles({
-  parsedFiles,
-  transformer,
-  finalOptions,
-  logger,
-}: ProcessFilesOptions): Promise<ProcessingResult> {
+function processFiles({ parsedFiles, transformer, finalOptions, logger }: ProcessFilesOptions): ProcessingResult {
   let processed = 0;
-  let skipped = [];
-  let errors = [];
+  const skipped = [];
+  const errors = [];
 
   for (const [filePath, parsedFile] of parsedFiles) {
     try {
@@ -431,7 +424,7 @@ export async function runMigration(options: MigrateOptions): Promise<void> {
   }
 
   // Process model files using pre-parsed data
-  const modelResults = await processFiles({
+  const modelResults = processFiles({
     parsedFiles: codemod.input.parsedModels,
     transformer: modelToArtifacts,
     finalOptions,
@@ -439,7 +432,7 @@ export async function runMigration(options: MigrateOptions): Promise<void> {
   });
 
   // Process mixin files using pre-parsed data
-  const mixinResults = await processFiles({
+  const mixinResults = processFiles({
     parsedFiles: codemod.input.parsedMixins,
     transformer: mixinToArtifacts,
     finalOptions,
@@ -453,10 +446,14 @@ export async function runMigration(options: MigrateOptions): Promise<void> {
 
   logger.info(`\n✅ Migration complete!`);
   logger.info(`   📊 Processed: ${processed}`);
-  logger.info(`   ⏭️  Skipped: ${skipped} - Mixins: ${mixinResults.skipped.length}, Models: ${modelResults.skipped.length}`);
+  logger.info(
+    `   ⏭️  Skipped: ${skipped} - Mixins: ${mixinResults.skipped.length}, Models: ${modelResults.skipped.length}`
+  );
 
   if (options.verbose) {
-    logger.warn(`Skipped:\n   Mixins:\n ${mixinResults.skipped}\n   Models: ${modelResults.skipped}`);
+    logger.warn(
+      `Skipped:\n   Mixins:\n ${mixinResults.skipped.join(', ')}\n   Models: ${modelResults.skipped.join(', ')}`
+    );
   }
   if (errors > 0) {
     logger.info(`   ❌ Errors: ${errors} files`);

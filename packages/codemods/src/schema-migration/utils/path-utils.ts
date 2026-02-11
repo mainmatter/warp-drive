@@ -330,4 +330,3 @@ export function getImportSourceConfig(sourceType: 'model' | 'mixin', options?: T
     additionalSources: options?.additionalMixinSources,
   };
 }
-

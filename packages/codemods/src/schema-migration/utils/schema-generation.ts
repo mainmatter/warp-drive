@@ -661,4 +661,3 @@ export function generateMergedSchemaCode(opts: MergedSchemaOptions): string {
 
   return sections.join('\n');
 }
-

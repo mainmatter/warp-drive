@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from 'fs';
 import { dirname, resolve } from 'path';
 
 import type { TransformOptions } from '../config.js';
-import { findClassDeclaration, findDefaultExport, getExportedIdentifier } from './ast-helpers.js';
+import { findClassDeclaration, findDefaultExport } from './ast-helpers.js';
 import { debugLog } from './logging.js';
 import {
   extractBaseName,
@@ -16,7 +16,6 @@ import {
   toPascalCase,
 } from './path-utils.js';
 import {
-  createQuotedPathRegex,
   EXT_FILE_PATH_REGEX,
   FILE_EXTENSION_REGEX,
   IMPORT_DEFAULT_REGEX,
@@ -431,17 +430,7 @@ function resolveAbsoluteModelImport(importPath: string, baseDir: string, options
 /**
  * Check if a file is a mixin file by analyzing its content
  */
-export function isMixinFile(
-  filePath: string,
-  options?: TransformOptions,
-  findEmberImportLocalName?: (
-    root: SgNode,
-    sources: string[],
-    opts?: TransformOptions,
-    fromFile?: string,
-    baseDir?: string
-  ) => string | null
-): boolean {
+export function isMixinFile(filePath: string, options?: TransformOptions): boolean {
   try {
     const source = readFileSync(filePath, 'utf8');
 

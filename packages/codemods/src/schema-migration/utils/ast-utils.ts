@@ -79,12 +79,7 @@ export {
   mapFieldsToTypeProperties,
   buildTraitSchemaObject,
 } from './schema-generation.js';
-export type {
-  TransformArtifact,
-  PropertyInfo,
-  SchemaField,
-  MergedSchemaOptions,
-} from './schema-generation.js';
+export type { TransformArtifact, PropertyInfo, SchemaField, MergedSchemaOptions } from './schema-generation.js';
 
 // Re-export from import-utils
 export {

@@ -1,10 +1,10 @@
 import type { SgNode } from '@ast-grep/napi';
-import { Lang, parse } from '@ast-grep/napi';
+import { Lang } from '@ast-grep/napi';
 import { existsSync } from 'fs';
 import { join } from 'path';
 
 import type { TransformOptions } from '../config.js';
-import type { ExtractedType, PropertyInfo, SchemaField, SchemaFieldForType, TransformArtifact } from '../utils/ast-utils.js';
+import type { ExtractedType, PropertyInfo, SchemaField, TransformArtifact } from '../utils/ast-utils.js';
 import {
   buildTraitSchemaObject,
   collectTraitImports,
@@ -12,7 +12,6 @@ import {
   debugLog,
   DEFAULT_EMBER_DATA_SOURCE,
   DEFAULT_MIXIN_SOURCE,
-  extractBaseName,
   extractCamelCaseName,
   extractTypeFromMethod,
   extractTypesFromInterface,
@@ -55,7 +54,6 @@ const MIXIN_METHOD_CREATE = 'create';
 
 /** Mixin.createWithMixins() method name */
 const MIXIN_METHOD_CREATE_WITH_MIXINS = 'createWithMixins';
-
 
 /**
  * Check if a resource type file exists and create a stub if it doesn't
@@ -164,7 +162,16 @@ export function toArtifacts(parsedFile: ParsedFile, options: TransformOptions): 
     return [];
   }
 
-  return generateMixinArtifacts(filePath, source, baseName, mixinName, traitFields, extensionProperties, extendedTraits, options);
+  return generateMixinArtifacts(
+    filePath,
+    source,
+    baseName,
+    mixinName,
+    traitFields,
+    extensionProperties,
+    extendedTraits,
+    options
+  );
 }
 
 /**
@@ -224,11 +231,10 @@ function generateMixinArtifacts(
 
   const traitSchemaName = traitInterfaceName;
   const traitInternalName = pascalToKebab(mixinName);
-  const traitSchemaObject = buildTraitSchemaObject(
-    traitFields as SchemaField[],
-    extendedTraits,
-    { name: traitInternalName, mode: 'legacy' }
-  );
+  const traitSchemaObject = buildTraitSchemaObject(traitFields as SchemaField[], extendedTraits, {
+    name: traitInternalName,
+    mode: 'legacy',
+  });
 
   const mergedTraitSchemaCode = generateMergedSchemaCode({
     baseName,

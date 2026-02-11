@@ -34,9 +34,7 @@ import {
   mapFieldsToTypeProperties,
   mixinNameToTraitName,
   parseDecoratorArgumentsWithNodes,
-  schemaFieldToTypeScriptType,
   toPascalCase,
-  transformModelToResourceImport,
   withTransformWrapper,
 } from '../utils/ast-utils.js';
 import {
@@ -58,8 +56,8 @@ import {
   NODE_KIND_PROPERTY_IDENTIFIER,
 } from '../utils/code-processing.js';
 import { appendExtensionSignatureType, createExtensionFromOriginalFile } from '../utils/extension-generation.js';
-import { isClassMethodSyntax } from '../utils/file-parser.js';
 import type { ParsedFile } from '../utils/file-parser.js';
+import { isClassMethodSyntax } from '../utils/file-parser.js';
 import { replaceWildcardPattern } from '../utils/path-utils.js';
 import {
   MODEL_NAME_SUFFIX_REGEX,
@@ -225,13 +223,7 @@ function validateModelAST(filePath: string, source: string, options: TransformOp
   const modelImportLocal = findEmberImportLocalName(root, expectedSources, options, filePath, process.cwd());
   debugLog(options, `DEBUG: Model import local: ${modelImportLocal}`);
 
-  const fragmentImportLocal = findEmberImportLocalName(
-    root,
-    [FRAGMENT_BASE_SOURCE],
-    options,
-    filePath,
-    process.cwd()
-  );
+  const fragmentImportLocal = findEmberImportLocalName(root, [FRAGMENT_BASE_SOURCE], options, filePath, process.cwd());
   debugLog(options, `DEBUG: Fragment import local: ${fragmentImportLocal}`);
 
   const defaultExportNode = findDefaultExport(root, options);
@@ -326,13 +318,7 @@ function extractHeritageInfo(
 
     if (options?.importSubstitutes) {
       for (const substitute of options.importSubstitutes) {
-        const localName = findEmberImportLocalName(
-          root,
-          [substitute.import],
-          options,
-          undefined,
-          process.cwd()
-        );
+        const localName = findEmberImportLocalName(root, [substitute.import], options, undefined, process.cwd());
         if (localName && heritageClause.text().includes(localName)) {
           if (substitute.trait) {
             mixinTraits.push(substitute.trait);
@@ -831,7 +817,7 @@ function generateIntermediateModelTraitArtifacts(
     return [];
   }
 
-  const { schemaFields, extensionProperties, mixinTraits, defaultExportNode } = analysis;
+  const { schemaFields, extensionProperties, mixinTraits } = analysis;
 
   // Determine the file extension based on the original model file
   const originalExtension = getFileExtension(filePath);
@@ -1785,7 +1771,7 @@ export function preAnalyzeConnectedMixinExtensions(
       const extensionName = hasExtension ? `${parsedMixin.camelName}Extension` : null;
 
       mixinExtensionCache.set(mixinFilePath, { hasExtension, extensionName });
-    } catch (error) {
+    } catch {
       mixinExtensionCache.set(mixinFilePath, { hasExtension: false, extensionName: null });
     }
   }

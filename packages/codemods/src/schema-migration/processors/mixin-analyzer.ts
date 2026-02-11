@@ -222,11 +222,7 @@ function resolveMixinPath(
  * Extract polymorphic mixin references from pre-parsed model fields
  * Finds belongsTo fields with polymorphic: true whose type matches a mixin file basename
  */
-function extractPolymorphicMixinReferences(
-  parsedFile: ParsedFile,
-  mixinFiles: string[],
-  logger: Logger
-): string[] {
+function extractPolymorphicMixinReferences(parsedFile: ParsedFile, mixinFiles: string[], logger: Logger): string[] {
   const polymorphicMixins: string[] = [];
 
   for (const field of parsedFile.fields) {

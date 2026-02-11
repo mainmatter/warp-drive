@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-assignment */
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -5,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type { MigrateOptions } from '../../../../packages/codemods/src/schema-migration/codemod.js';
 import { runMigration } from '../../../../packages/codemods/src/schema-migration/tasks/migrate.js';
-import { collectFilesSnapshot,collectFileStructure, prepareFiles } from './test-helpers.ts';
+import { collectFilesSnapshot, collectFileStructure, prepareFiles } from './test-helpers.ts';
 
 describe('migrate-to-schema batch operation', () => {
   let tempDir: string;
@@ -599,7 +600,7 @@ export default Mixin.create({
     await runMigration(options);
 
     const dataDir = join(tempDir, 'app/data');
-    expect(collectFilesSnapshot(dataDir)).toMatchSnapshot('contains_only_a_trait')
+    expect(collectFilesSnapshot(dataDir)).toMatchSnapshot('contains_only_a_trait');
   });
 
   it('mixin with both attributes and methods only is referenced as a trait and an objectExtension', async () => {
@@ -637,7 +638,7 @@ export default Mixin.create({
     await runMigration(options);
 
     const dataDir = join(tempDir, 'app/data');
-    expect(collectFilesSnapshot(dataDir)).toMatchSnapshot('contains_both_extension_and_a_trait')
+    expect(collectFilesSnapshot(dataDir)).toMatchSnapshot('contains_both_extension_and_a_trait');
   });
 
   it('ensures type files are always .ts regardless of source file extension', async () => {
@@ -762,11 +763,13 @@ export default class TestModel extends BaseModel {
 
     await runMigration({
       ...options,
-      importSubstitutes: [{
-        import: 'test-app/models/base-model',
-        extension: 'static-base-model-extension',
-        trait: 'static-base-model-trait',
-      }]
+      importSubstitutes: [
+        {
+          import: 'test-app/models/base-model',
+          extension: 'static-base-model-extension',
+          trait: 'static-base-model-trait',
+        },
+      ],
     });
     const dataDir = join(tempDir, 'app/data');
     expect(collectFilesSnapshot(dataDir)['resources/typed.schema.ts']).toBeTruthy();
@@ -837,11 +840,13 @@ export default class TestModel extends BaseModel {
 
     await runMigration({
       ...options,
-      importSubstitutes: [{
-        import: 'test-app/models/base-model',
-        extension: 'static-base-model-extension',
-        trait: 'static-base-model-trait',
-      }]
+      importSubstitutes: [
+        {
+          import: 'test-app/models/base-model',
+          extension: 'static-base-model-extension',
+          trait: 'static-base-model-trait',
+        },
+      ],
     });
     const dataDir = join(tempDir, 'app/data');
     expect(collectFilesSnapshot(dataDir)['resources/typed.schema.ts']).toBeTruthy();
@@ -918,11 +923,13 @@ export default class TestModel extends BaseModel {
     await runMigration({
       ...options,
       emberDataImportSource: '@ember-data/model',
-      importSubstitutes: [{
-        import: 'soxhub-client/core/base-model',
-        extension: 'static-base-model-extension',
-        trait: 'static-base-model-trait',
-      }]
+      importSubstitutes: [
+        {
+          import: 'soxhub-client/core/base-model',
+          extension: 'static-base-model-extension',
+          trait: 'static-base-model-trait',
+        },
+      ],
     });
     const dataDir = join(tempDir, 'app/data');
     expect(collectFilesSnapshot(dataDir)['resources/typed.schema.ts']).toBeTruthy();
@@ -989,5 +996,3 @@ export default class TestModel extends BaseModel {
     `);
   });
 });
-
-
