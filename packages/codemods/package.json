@@ -13,7 +13,7 @@
     "codemods": "codemods"
   },
   "scripts": {
-    "build:cli": "bun build bin/codemods.ts --compile --target node --outfile codemods --sourcemap",
+    "build:cli": "bun build bin/index.ts --compile --target node --outfile codemods --sourcemap",
     "lint": "eslint . --quiet --cache --cache-strategy=content"
   },
   "exports": {
