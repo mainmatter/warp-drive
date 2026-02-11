@@ -1,7 +1,7 @@
 {
   "name": "codemods-tests",
   "private": true,
-  "version": "5.9.0-alpha.0",
+  "version": "5.9.0-alpha.8",
   "description": "Codemods for EmberData paradigms",
   "keywords": [],
   "repository": {
@@ -30,8 +30,8 @@
   "license": "MIT",
   "dependencies": {
     "jscodeshift": "^17.3.0",
-    "prettier": "^3.6.2",
-    "typescript": "^5.9.2"
+    "prettier": "^3.8.1",
+    "typescript": "^5.9.3"
   },
   "devDependencies": {
     "@ember-data/codemods": "workspace:*",
@@ -46,6 +46,5 @@
   },
   "volta": {
     "extends": "../../package.json"
-  },
-  "packageManager": "pnpm@10.15.0"
+  }
 }

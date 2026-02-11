@@ -502,7 +502,7 @@ export default class User extends Model.extend(Timestamped) {
 import { withDefaults } from '@warp-drive-mirror/legacy/model/migration-support';
 
 export const UserSchema = withDefaults({
-  type: 'user';
+  type: 'user',
   fields: [
     { kind: 'attribute', name: 'firstName' },
     { kind: 'attribute', name: 'lastName' },
@@ -564,7 +564,7 @@ export class UserExtension {
   }
 }
 
-export const UserExtension = {
+export const UserExtensionSchema = {
   name: 'user-extension',
   kind: 'object',
   features: UserExtension,
@@ -788,7 +788,7 @@ export default class User extends Model {
 import { withDefaults } from '@warp-drive-mirror/legacy/model/migration-support';
 
 export const UserSchema = withDefaults({
-  type: 'user';
+  type: 'user',
   fields: [
     { kind: 'attribute', name: 'firstName' },
     { kind: 'attribute', name: 'lastName' },
@@ -845,7 +845,7 @@ export class UserExtension {
   }
 }
 
-export const UserExtension = {
+export const UserExtensionSchema = {
   name: 'user-extension',
   kind: 'object',
   features: UserExtension,
@@ -908,7 +908,7 @@ export default Mixin.create({
 import { withDefaults } from '@warp-drive-mirror/legacy/model/migration-support';
 
 export const UserSchema = withDefaults({
-  type: 'user';
+  type: 'user',
   fields: [
     { kind: 'attribute', name: 'firstName' },
     { kind: 'attribute', name: 'lastName' },

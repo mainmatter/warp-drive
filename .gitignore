@@ -6,6 +6,7 @@
 concat-stats-for
 dist
 dist-*
+cjs-dist
 tmp
 unstable-preview-types
 packages/*/addon
