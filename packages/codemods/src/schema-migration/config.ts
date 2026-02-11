@@ -35,8 +35,6 @@ export interface TransformOptions {
   additionalModelSources?: Array<{ pattern: string; dir: string }>;
   /** Additional mixin source patterns and their corresponding directories */
   additionalMixinSources?: Array<{ pattern: string; dir: string }>;
-  /** Base import prefix for the application (e.g., 'my-app') */
-  appImportPrefix: string;
   /** Specify base import path for new resource type imports (required) */
   resourcesImport?: string;
   /** Directory to write generated resource schemas to */

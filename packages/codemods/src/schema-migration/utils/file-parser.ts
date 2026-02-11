@@ -173,15 +173,6 @@ function classifyImport(importPath: string, options: TransformOptions): ParsedFi
     return 'model';
   }
 
-  if (options.appImportPrefix) {
-    if (importPath.startsWith(`${options.appImportPrefix}/models/`)) {
-      return 'model';
-    }
-    if (importPath.startsWith(`${options.appImportPrefix}/mixins/`)) {
-      return 'mixin';
-    }
-  }
-
   if (importPath.includes('/models/')) {
     return 'model';
   }

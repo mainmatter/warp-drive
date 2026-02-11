@@ -343,7 +343,6 @@ async function processFiles({
 export async function runMigration(options: MigrateOptions): Promise<void> {
   const finalOptions: FinalOptions = {
     kind: 'finalized',
-    appImportPrefix: 'my-app',
     inputDir: options.inputDir || './app',
     outputDir: options.outputDir || './app/schemas',
     dryRun: options.dryRun || false,

@@ -10,8 +10,6 @@ export interface ConfigOptions {
   intermediateModelPaths?: string[] | string;
   modelImportSource?: string;
   mixinImportSource?: string;
-  /** Base import prefix for the application (e.g., 'my-app') */
-  appImportPrefix: string;
   modelSourceDir?: string;
   mixinSourceDir?: string;
   additionalModelSources?: Array<{ pattern: string; dir: string }>;

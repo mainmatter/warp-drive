@@ -1633,11 +1633,6 @@ function isLocalMixin(importPath: string, options?: TransformOptions): boolean {
     return true;
   }
 
-  // Check if this matches the configured app import prefix
-  if (options?.appImportPrefix && importPath.startsWith(options.appImportPrefix + '/')) {
-    return true;
-  }
-
   // Check if this matches the configured model or mixin import sources
   if (options?.modelImportSource && importPath.startsWith(options.modelImportSource)) {
     return true;

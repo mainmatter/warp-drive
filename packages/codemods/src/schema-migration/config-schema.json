@@ -48,10 +48,6 @@
       },
       "description": "List of intermediate model class import paths that should be converted to traits (e.g., ['my-app/core/base-model', 'my-app/core/data-field-model'])"
     },
-    "appImportPrefix": {
-      "type": "string",
-      "description": "Base import prefix for the application (e.g., 'my-app'). Used for detecting local imports that refer to models, mixins, etc."
-    },
     "modelImportSource": {
       "type": "string",
       "description": "Base import path for existing model imports to detect and replace (required)"
