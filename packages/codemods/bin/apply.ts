@@ -1,65 +1,77 @@
-import chalk from 'chalk';
 import type { Command } from 'commander';
-import { Option } from 'commander';
-import ignore from 'ignore';
-import jscodeshift from 'jscodeshift';
-import path from 'path';
+import { Argument, Option } from 'commander';
 
-import type { Options as LegacyCompatBuildersOptions } from '../src/legacy-compat-builders/options.js';
-import type { MigrateOptions } from '../src/schema-migration/codemod.js';
+import type { MigrateOptions } from '../src/schema-migration/config.ts';
 import { type ConfigOptions, loadConfig, mergeOptions } from '../src/schema-migration/utils/config.js';
-import type { SharedCodemodOptions } from '../src/utils/options.js';
 import { logger } from '../utils/logger.js';
-import type { CodemodConfig } from './config.js';
+import type { SharedCodemodOptions } from './index.js';
 
-export function createApplyCommand(program: Command, codemods: CodemodConfig[]) {
-  const applyCommand = program.command('apply').description('apply the given codemod to the target file paths');
+export function createApplyCommand(program: Command) {
+  const applyCommand = program.command('apply').description('apply the given codemod to the target file paths')
+  .addArgument(new Argument('<codemod>').choices(['migrate-to-schema', 'legacy-compat-builders']));
 
-  const commands = new Map<string, Command>();
-  // Add arguments that will be used for all codemods
-  for (const codemod of codemods) {
-    const command = applyCommand.command(`${codemod.name}`).description(codemod.description);
+  createMigrateToSchemaCommand(applyCommand);
+  createLegacyCompatBuildersCommand(applyCommand);
+}
 
-    // migrate-to-schema has different arguments
-    if (codemod.name === 'migrate-to-schema') {
-      command.argument('[input-dir]', 'Input directory to search for models and mixins', './app');
-    } else {
-      command.argument(
-        '<target-glob-pattern...>',
-        'Path to files or glob pattern. If using glob pattern, wrap in single quotes.'
-      );
-    }
-
-    command
-      .addOption(new Option('-d, --dry', 'dry run (no changes are made to files)'))
-      .addOption(
-        new Option('-v, --verbose <level>', 'Show more information about the transform process')
-          .choices(['0', '1', '2'])
-          .default('0')
+function addSharedOptions(command: Command) {
+  command
+    .addOption(new Option('-d, --dry', 'dry run (no changes are made to files)'))
+    .addOption(
+      new Option('-v, --verbose <level>', 'Show more information about the transform process')
+        .choices(['0', '1', '2'])
+        .default('0')
+    )
+    .addOption(
+      new Option(
+        '-l, --log-file [path]',
+        'Write logs to a file. If option is set but no path is provided, logs are written to ember-data-codemods.log'
       )
-      .addOption(
-        new Option(
-          '-l, --log-file [path]',
-          'Write logs to a file. If option is set but no path is provided, logs are written to ember-data-codemods.log'
-        )
+    )
+    .addOption(
+      new Option(
+        '-i, --ignore <ignore-glob-pattern...>',
+        'Ignores the given file or glob pattern. If using glob pattern, wrap in single quotes.'
       )
-      .addOption(
-        new Option(
-          '-i, --ignore <ignore-glob-pattern...>',
-          'Ignores the given file or glob pattern. If using glob pattern, wrap in single quotes.'
-        )
-      )
-      .allowUnknownOption() // to passthrough jscodeshift options
-      .action(createApplyAction(codemod.name));
-    commands.set(codemod.name, command);
-  }
+    );
+}
 
-  // Add arguments that are specific to the legacy-compat-builders codemod
-  const legacyCompatBuilders = commands.get('legacy-compat-builders');
-  if (!legacyCompatBuilders) {
-    throw new Error('No codemod found for: legacy-compat-builders');
-  }
-  legacyCompatBuilders
+function createMigrateToSchemaCommand(applyCommand: Command) {
+  const command = applyCommand
+    .command('migrate-to-schema')
+    .description('Migrates both EmberData models and mixins to WarpDrive schemas in batch.');
+
+  command.argument('[input-dir]', 'Input directory to search for models and mixins', './app');
+
+  addSharedOptions(command);
+
+  command
+    .addOption(new Option('--config <path>', 'Path to configuration file'))
+    .addOption(new Option('--skip-processed', 'Skip files that have already been processed'))
+    .addOption(new Option('--model-source-dir <path>', 'Directory containing model files').default('./app/models'))
+    .addOption(new Option('--mixin-source-dir <path>', 'Directory containing mixin files').default('./app/mixins'))
+    .addOption(new Option('--output-dir <path>', 'Output directory for generated schemas').default('./app/data'))
+    .action(async (patterns: string[] | string, options: SharedCodemodOptions & Record<string, unknown>) => {
+      logger.config(options);
+      return handleMigrateToSchema(patterns, options);
+    });
+}
+
+function createLegacyCompatBuildersCommand(applyCommand: Command) {
+  const command = applyCommand
+    .command('legacy-compat-builders')
+    .description(
+      'Updates legacy store methods to use `store.request` and `@ember-data/legacy-compat/builders` instead.'
+    );
+
+  command.argument(
+    '<target-glob-pattern...>',
+    'Path to files or glob pattern. If using glob pattern, wrap in single quotes.'
+  );
+
+  addSharedOptions(command);
+
+  command
     .addOption(
       new Option(
         '--store-names <store-name...>',
@@ -71,236 +83,94 @@ export function createApplyCommand(program: Command, codemods: CodemodConfig[]) 
         '--method, --methods <method-name...>',
         'Method name(s) to transform. By default, will transform all methods.'
       ).choices(['findAll', 'findRecord', 'query', 'queryRecord', 'saveRecord'])
-    );
-
-  // Add arguments that are specific to the migrate-to-schema codemod
-  const migrateToSchema = commands.get('migrate-to-schema');
-  if (migrateToSchema) {
-    migrateToSchema
-      .addOption(new Option('--config <path>', 'Path to configuration file'))
-      .addOption(new Option('--models-only', 'Only process model files'))
-      .addOption(new Option('--mixins-only', 'Only process mixin files'))
-      .addOption(new Option('--skip-processed', 'Skip files that have already been processed'))
-      .addOption(new Option('--model-source-dir <path>', 'Directory containing model files').default('./app/models'))
-      .addOption(new Option('--mixin-source-dir <path>', 'Directory containing mixin files').default('./app/mixins'))
-      .addOption(new Option('--output-dir <path>', 'Output directory for generated schemas').default('./app/schemas'))
-      .addOption(
-        new Option(
-          '--generate-external-resources',
-          'Generate resource schema files for external package models in the consuming app'
-        )
-      );
-  }
+    )
+    .action(async (patterns: string[] | string, options: SharedCodemodOptions & Record<string, unknown>) => {
+      logger.config(options);
+      return handleLegacyCompatBuilders(patterns, options);
+    });
 }
 
-function createApplyAction(transformName: string) {
-  return async (patterns: string[] | string, options: SharedCodemodOptions & Record<string, unknown>) => {
-    logger.config(options);
-    const log = logger.for(transformName);
+async function handleLegacyCompatBuilders(
+  patterns: string[] | string,
+  options: SharedCodemodOptions & Record<string, unknown>
+) {
+  const { runTransform } = await import('../src/legacy-compat-builders/run.js');
+  const patternArray = Array.isArray(patterns) ? patterns : [patterns];
 
-    // Special handling for migrate-to-schema command
-    if (transformName === 'migrate-to-schema') {
-      const { runMigration } = await import('../src/schema-migration/tasks/migrate.js');
-      const inputDir = (typeof patterns === 'string' ? patterns : patterns[0]) || './app';
+  await runTransform({
+    patterns: patternArray,
+    dry: options.dry,
+    ignore: options.ignore,
+    storeNames: (options.storeNames as string[]) ?? ['store'],
+    methods: options.methods as string[] | undefined,
+  });
+}
 
-      // Load and merge config file if provided
-      let configOptions = {};
-      if (options.config) {
-        try {
-          configOptions = loadConfig(String(options.config));
-          log.info(`Loaded configuration from: ${options.config}`);
-        } catch (error) {
-          log.error(`Failed to load config file: ${error instanceof Error ? error.message : String(error)}`);
-          throw error;
-        }
-      }
+async function handleMigrateToSchema(
+  patterns: string[] | string,
+  options: SharedCodemodOptions & Record<string, unknown>
+) {
+  const log = logger.for('migrate-to-schema');
+  const { runMigration } = await import('../src/schema-migration/tasks/migrate.js');
+  const inputDir = (typeof patterns === 'string' ? patterns : patterns[0]) || './app';
 
-      // Merge CLI options with config options (CLI takes precedence)
-      // Exclude verbose from spread to avoid type conflict (CLI uses '0'|'1'|'2', ConfigOptions uses boolean)
-      const { verbose: _verboseRaw, ...restOptions } = options;
-      const cliOptions: ConfigOptions = {
-        ...restOptions,
-        inputDir,
-        ...(options.dry !== undefined && { dryRun: Boolean(options.dry) }),
-        ...(options.verbose !== undefined && { verbose: options.verbose === '1' || options.verbose === '2' }),
-        ...(options.debug !== undefined && { debug: Boolean(options.debug) }),
-        ...(options.modelsOnly !== undefined && { modelsOnly: Boolean(options.modelsOnly) }),
-        ...(options.mixinsOnly !== undefined && { mixinsOnly: Boolean(options.mixinsOnly) }),
-        ...(options.skipProcessed !== undefined && { skipProcessed: Boolean(options.skipProcessed) }),
-        modelSourceDir: String(options.modelSourceDir || './app/models'),
-        mixinSourceDir: String(options.mixinSourceDir || './app/mixins'),
-        outputDir: String(options.outputDir || './app/schemas'),
-        ...(options.generateExternalResources !== undefined && {
-          generateExternalResources: Boolean(options.generateExternalResources),
-        }),
-        // Ensure intermediateModelPaths is an array if provided
-        intermediateModelPaths: Array.isArray(options.intermediateModelPaths)
-          ? options.intermediateModelPaths
-          : options.intermediateModelPaths
-            ? [options.intermediateModelPaths]
-            : undefined,
-      };
-      const mergedOptions = mergeOptions(cliOptions, configOptions);
-
-      // Normalize options after merge (config file may have different types)
-      const normalizedIntermediateModelPaths = Array.isArray(mergedOptions.intermediateModelPaths)
-        ? mergedOptions.intermediateModelPaths
-        : mergedOptions.intermediateModelPaths
-          ? [mergedOptions.intermediateModelPaths]
-          : undefined;
-
-      // typeMapping may be a JSON string in config files, parse it if needed
-      const normalizedTypeMapping =
-        typeof mergedOptions.typeMapping === 'string'
-          ? (JSON.parse(mergedOptions.typeMapping) as Record<string, string>)
-          : mergedOptions.typeMapping;
-
-      const migrationOptions: MigrateOptions = {
-        ...mergedOptions,
-        intermediateModelPaths: normalizedIntermediateModelPaths,
-        typeMapping: normalizedTypeMapping,
-      };
-
-      try {
-        await runMigration(migrationOptions);
-        log.success('Migration completed successfully! 🎉');
-      } catch (error) {
-        log.error('Migration failed:', error instanceof Error ? error.message : String(error));
-        throw error;
-      }
-      return;
+  let configOptions = {};
+  if (options.config) {
+    try {
+      configOptions = loadConfig(String(options.config));
+      log.info(`Loaded configuration from: ${String(options.config)}`);
+    } catch (error) {
+      log.error(`Failed to load config file: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
     }
+  }
 
-    // Load and merge config file for other transforms
-    let finalOptions: SharedCodemodOptions & ConfigOptions = options as SharedCodemodOptions & ConfigOptions;
-    if (options.config) {
-      try {
-        const configOptions = loadConfig(String(options.config));
-        log.info(`Loaded configuration from: ${options.config}`);
-        // Normalize CLI options before merging (convert types to match ConfigOptions)
-        const normalizedCliOptions = {
-          ...options,
-          debug: Boolean(options.debug),
-          verbose: options.verbose === '1' || options.verbose === '2', // Convert string to boolean
-          // Ensure intermediateModelPaths is an array if provided
-          intermediateModelPaths: Array.isArray(options.intermediateModelPaths)
-            ? options.intermediateModelPaths
-            : options.intermediateModelPaths
-              ? [options.intermediateModelPaths]
-              : undefined,
-        };
-        // mergeOptions preserves the CLI type structure while merging config
-        finalOptions = mergeOptions(normalizedCliOptions as ConfigOptions, configOptions) as typeof finalOptions;
-      } catch (error) {
-        log.error(`Failed to load config file: ${error instanceof Error ? error.message : String(error)}`);
-        throw error;
-      }
-    }
-
-    const patternArray = Array.isArray(patterns) ? patterns : [patterns];
-    log.debug('Running with options:', { targetGlobPattern: patternArray, ...finalOptions });
-    const ig = ignore().add(['**/*.d.ts', '**/node_modules/**/*', '**/dist/**/*', ...(finalOptions.ignore ?? [])]);
-
-    log.debug('Running for paths:', Bun.inspect(patternArray));
-    if (finalOptions.dry) {
-      log.warn('Running in dry mode. No files will be modified.');
-    }
-
-    const { Codemods } = await import('../src/index.js');
-    if (!(transformName in Codemods)) {
-      throw new Error(`No codemod found for: ${transformName}`);
-    }
-    const transform = Codemods[transformName as keyof typeof Codemods];
-
-    /**
-     * | Result       | How-to                      | Meaning                                            |
-     * | :------      | :------                     | :-------                                           |
-     * | `errors`     | `throw`                     | we attempted to transform but encountered an error |
-     * | `unmodified` | return `string` (unchanged) | we attempted to transform but it was unnecessary   |
-     * | `skipped`    | return `undefined`          | we did not attempt to transform                    |
-     * | `ok`         | return `string` (changed)   | we successfully transformed                        |
-     */
-    const result = {
-      matches: 0,
-      errors: 0,
-      unmodified: 0,
-      skipped: 0,
-      ok: 0,
-    };
-    const j = jscodeshift.withParser('ts');
-
-    for (const pattern of patternArray) {
-      const glob = new Bun.Glob(pattern);
-      for await (const filepath of glob.scan('.')) {
-        if (ig.ignores(path.join(filepath))) {
-          log.warn('Skipping ignored file:', filepath);
-          result.skipped++;
-          continue;
-        }
-        log.debug('Transforming:', filepath);
-        result.matches++;
-        const file = Bun.file(filepath);
-        const originalSource = await file.text();
-        let transformedSource: string | undefined;
-        try {
-          transformedSource = transform(
-            { source: originalSource, path: filepath },
-            {
-              j,
-              jscodeshift: j,
-              stats: (_name: string, _quantity?: number): void => {}, // unused
-              report: (_msg: string): void => {}, // unused
-            },
-            // Options are properly typed per transform in CLI setup,
-            // but JSCodeshift generic API requires flexible typing
-            finalOptions as SharedCodemodOptions & LegacyCompatBuildersOptions
-          );
-        } catch (error) {
-          result.errors++;
-          log.error({
-            filepath,
-            message: error instanceof Error ? error.message : 'Unknown error',
-          });
-          continue;
-        }
-
-        if (transformedSource === undefined) {
-          result.skipped++;
-        } else if (transformedSource === originalSource) {
-          result.unmodified++;
-        } else {
-          if (finalOptions.dry) {
-            log.info({
-              filepath,
-              message: 'Transformed source:\n\t' + transformedSource,
-            });
-          } else {
-            await Bun.write(filepath, transformedSource);
-          }
-          result.ok++;
-        }
-      }
-    }
-
-    if (result.matches === 0) {
-      log.warn('No files matched the provided glob pattern(s):', patternArray);
-    }
-
-    if (result.errors > 0) {
-      log.info(chalk.red(`${result.errors} error(s). See logs above.`));
-    } else if (result.matches > 0) {
-      log.success('Zero errors! 🎉');
-    }
-    if (result.skipped > 0) {
-      log.info(
-        chalk.yellow(`${result.skipped} skipped file(s).`, chalk.gray('Transform did not run. See logs above.'))
-      );
-    }
-    if (result.unmodified > 0) {
-      log.info(`${result.unmodified} unmodified file(s).`, chalk.gray('Transform ran but no changes were made.'));
-    }
-    if (result.ok > 0) {
-      log.info(chalk.green(`${result.ok} transformed file(s).`));
-    }
+  const { verbose: _verboseRaw, ...restOptions } = options;
+  const cliOptions: ConfigOptions = {
+    ...restOptions,
+    inputDir,
+    ...(options.dry !== undefined && { dryRun: Boolean(options.dry) }),
+    ...(options.verbose !== undefined && { verbose: options.verbose === '1' || options.verbose === '2' }),
+    ...(options.debug !== undefined && { debug: Boolean(options.debug) }),
+    ...(options.modelsOnly !== undefined && { modelsOnly: Boolean(options.modelsOnly) }),
+    ...(options.mixinsOnly !== undefined && { mixinsOnly: Boolean(options.mixinsOnly) }),
+    ...(options.skipProcessed !== undefined && { skipProcessed: Boolean(options.skipProcessed) }),
+    modelSourceDir: String(options.modelSourceDir || './app/models'),
+    mixinSourceDir: String(options.mixinSourceDir || './app/mixins'),
+    outputDir: String(options.outputDir || './app/schemas'),
+    ...(options.generateExternalResources !== undefined && {
+      generateExternalResources: Boolean(options.generateExternalResources),
+    }),
+    intermediateModelPaths: Array.isArray(options.intermediateModelPaths)
+      ? options.intermediateModelPaths
+      : options.intermediateModelPaths
+        ? [options.intermediateModelPaths]
+        : undefined,
   };
+  const mergedOptions = mergeOptions(cliOptions, configOptions);
+
+  const normalizedIntermediateModelPaths = Array.isArray(mergedOptions.intermediateModelPaths)
+    ? mergedOptions.intermediateModelPaths
+    : mergedOptions.intermediateModelPaths
+      ? [mergedOptions.intermediateModelPaths]
+      : undefined;
+
+  const normalizedTypeMapping =
+    typeof mergedOptions.typeMapping === 'string'
+      ? (JSON.parse(mergedOptions.typeMapping) as Record<string, string>)
+      : mergedOptions.typeMapping;
+
+  const migrationOptions: MigrateOptions = {
+    ...mergedOptions,
+    intermediateModelPaths: normalizedIntermediateModelPaths,
+    typeMapping: normalizedTypeMapping,
+  };
+
+  try {
+    await runMigration(migrationOptions);
+    log.success('Migration completed successfully! 🎉');
+  } catch (error) {
+    log.error('Migration failed:', error instanceof Error ? error.message : String(error));
+    throw error;
+  }
 }
