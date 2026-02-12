@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment */
+
 import { describe, expect, it } from 'vitest';
 
 import type { PropertyInfo } from '../../../../../packages/codemods/src/schema-migration/utils/ast-utils.js';

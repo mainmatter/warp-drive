@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-assignment */
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
