@@ -62,7 +62,11 @@ export interface TransformOptions {
   modelsWithExtensions?: Set<string>;
   /** Generate resource schemas for external (non-local) model files */
   generateExternalResources?: boolean;
-
+  /**
+   * Allows specifying a 'substitute' for a situation where an import can't be properly analyzed by the codemod.
+   * Example being a "BaseModel" whose file can't easily be read. In that situation users are expected to migrate such module manually and
+   * provide codemod with information under what extension and trait name it exists now.
+   * */
   importSubstitutes?: Array<{
     import: string;
     extension?: string;
