@@ -74,3 +74,5 @@ docs-viewer/docs.warp-drive.io/api
 docs-viewer/docs.warp-drive.io/public/logos
 
 vite.config.mjs.timestamp-*
+
+node-compile-cache
