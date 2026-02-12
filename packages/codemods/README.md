@@ -59,7 +59,7 @@ npx @ember-data/codemods apply legacy-compat-builders ./app/**/*.{js,ts}
 
 ### Available codemods
 
-- `legacy-compat-builders` - Migrates both EmberData models and mixins to WarpDrive schemas
+- [`legacy-compat-builders`](#legacy-compat-builders) - Migrates both EmberData models and mixins to WarpDrive schemas
 - [`migrate-to-schema`](#migrate-to-schema) - Migrates both EmberData models and mixins to WarpDrive schemas
 
 ### migrate-to-schema
@@ -230,15 +230,17 @@ const UserSchema = {
 
 export default UserSchema;
 
-// NOTE: The codemod is expected to also "extend" this interface with the `extension` properties (TBD)
-// import { UserExtensionSignature } './user.ext';
-export interface User /* extends UserExtensionSignature  */ {
+export interface UserTrait {
   [Type]: 'user';
   name: string;
   email: string;
   company: Company;
   projects: Project[];
 }
+
+// NOTE: The codemod is expected to also "extend" this interface with the `extension` properties (TBD)
+// import { UserExtension } './user.ext';
+// export interface User extends UserTrait, UserExtension {}
 ```
 
 **Generated Extension:**
@@ -246,9 +248,10 @@ export interface User /* extends UserExtensionSignature  */ {
 // app/resources/user.ext.ts
 
 // NOTE: The codemod is expected to also "extend" this interface with the `extension` properties (TBD)
-// import { User } './user.schema';
-// const Base = class {} as { new(): User };
-export class UserExtension /* extends Base */ {
+// import { UserTrait } './user.schema';
+// export interface UserExtension extends UserTrait {};
+
+export class UserExtension {
   get displayName() {
     return this.name || this.email;
   }
