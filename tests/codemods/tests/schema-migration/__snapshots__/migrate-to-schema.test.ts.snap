@@ -795,7 +795,7 @@ const TsModelWithMixinSchema = {
     'ts'
   ],
   'objectExtensions': [
-    'TsmixinExtension'
+    'TsMixinExtension'
   ]
 } as const;
 
@@ -830,9 +830,9 @@ import { attr } from '@ember-data/model';
 
 import type { TsMixinTrait } from 'test-app/data/traits/ts-mixin.schema';
 
-export interface TsmixinExtension extends TsMixinTrait {}
+export interface TsMixinExtension extends TsMixinTrait {}
 
-export const TsmixinExtension = {
+export const TsMixinExtension = {
   toggleEnabled() {
     this.set('isEnabled', !this.isEnabled);
   }

@@ -1,4 +1,5 @@
 import type { connectedMixins, modelToMixinsMap } from './processors/mixin-analyzer';
+import type { SchemaEntityRegistry } from './utils/schema-entity';
 
 export interface TransformOptions {
   verbose?: boolean;
@@ -72,6 +73,8 @@ export interface TransformOptions {
     extension?: string;
     trait?: string;
   }>;
+  /** Registry of SchemaEntity instances keyed by file path */
+  entityRegistry?: SchemaEntityRegistry;
 }
 
 export interface MigrateOptions extends Partial<TransformOptions> {

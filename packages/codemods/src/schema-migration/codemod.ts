@@ -8,6 +8,8 @@ import { analyzeModelMixinUsage } from './processors/mixin-analyzer.js';
 import type { ParsedFile } from './utils/file-parser.js';
 import { parseFile } from './utils/file-parser.js';
 import type { Logger } from './utils/logger.js';
+import type { SchemaEntityRegistry } from './utils/schema-entity.js';
+import { buildEntityRegistry, linkEntities } from './utils/schema-entity.js';
 import { FILE_EXTENSION_REGEX, TRAILING_SINGLE_WILDCARD_REGEX, TRAILING_WILDCARD_REGEX } from './utils/string.js';
 
 export type Filename = string;
@@ -115,6 +117,7 @@ export class Codemod {
   logger: Logger;
   finalOptions: FinalOptions;
   input: Input = new Input();
+  entityRegistry: SchemaEntityRegistry = new Map();
 
   mixinsImportedByModels: Set<string> = new Set();
   modelsWithExtensions: Set<string> = new Set();
@@ -128,6 +131,8 @@ export class Codemod {
     const result = analyzeModelMixinUsage(this, this.finalOptions);
     this.mixinsImportedByModels = result.connectedMixins;
     this.finalOptions.modelToMixinsMap = result.modelToMixinsMap;
+
+    linkEntities(this.entityRegistry, result.modelToMixinsMap);
   }
 
   findModelExtensions() {
@@ -175,6 +180,8 @@ export class Codemod {
     }
 
     this.logger.info(`✅ Parsed ${modelsParsed} models and ${mixinsParsed} mixins (${parseErrors} errors).`);
+
+    this.entityRegistry = buildEntityRegistry(this.input.parsedModels, this.input.parsedMixins);
   }
 
   createDestinationDirectories() {

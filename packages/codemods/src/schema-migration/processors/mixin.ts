@@ -27,7 +27,6 @@ import {
   getLanguageFromPath,
   mapFieldsToTypeProperties,
   toPascalCase,
-  withTransformWrapper,
 } from '../utils/ast-utils.js';
 import {
   extractFieldNameFromKey,
@@ -46,7 +45,7 @@ import {
   NODE_KIND_VARIABLE_DECLARATOR,
   parseObjectPropertiesFromNode,
 } from '../utils/code-processing.js';
-import type { ParsedFile } from '../utils/file-parser.js';
+import type { SchemaEntity } from '../utils/schema-entity.js';
 import { mixinNameToKebab, pascalToKebab } from '../utils/string.js';
 
 /** Mixin.create() method name */
@@ -104,22 +103,6 @@ export interface ${typeName} {
 }
 
 /**
- * Transform to convert Ember mixins to WarpDrive LegacyTrait patterns
- */
-export default function transform(filePath: string, source: string, options: TransformOptions): string {
-  return withTransformWrapper(
-    filePath,
-    source,
-    options,
-    'mixin-to-schema',
-    (root, sourceContent, filePathParam, optionsParam) => {
-      // Assume all files passed to this codemod are mixins that need to be converted to schemas
-      return handleMixinTransform(root, sourceContent, filePathParam, optionsParam);
-    }
-  );
-}
-
-/**
  * Produce zero, one, or two artifacts for a given mixin file:
  * - Trait artifact when attr/hasMany/belongsTo fields are present
  * - Extension artifact when non-trait properties (methods, computeds) are present
@@ -127,7 +110,8 @@ export default function transform(filePath: string, source: string, options: Tra
  * This does not modify the original source. The CLI can use this to write
  * files to the requested output directories.
  */
-export function toArtifacts(parsedFile: ParsedFile, options: TransformOptions): TransformArtifact[] {
+export function toArtifacts(entity: SchemaEntity, options: TransformOptions): TransformArtifact[] {
+  const parsedFile = entity.parsedFile;
   const { path: filePath, source, baseName, camelName: mixinName } = parsedFile;
 
   if (parsedFile.fileType !== 'mixin') {
@@ -163,6 +147,7 @@ export function toArtifacts(parsedFile: ParsedFile, options: TransformOptions): 
   }
 
   return generateMixinArtifacts(
+    entity,
     filePath,
     source,
     baseName,
@@ -178,6 +163,7 @@ export function toArtifacts(parsedFile: ParsedFile, options: TransformOptions): 
  * Shared artifact generation logic
  */
 function generateMixinArtifacts(
+  entity: SchemaEntity,
   filePath: string,
   source: string,
   baseName: string,
@@ -191,7 +177,7 @@ function generateMixinArtifacts(
   const fileExtension = getFileExtension(filePath);
   const isTypeScript = fileExtension === '.ts';
 
-  const traitInterfaceName = `${mixinName.charAt(0).toUpperCase() + mixinName.slice(1)}Trait`;
+  const traitInterfaceName = entity.traitInterfaceName;
 
   const traitFieldTypes = mapFieldsToTypeProperties(traitFields as SchemaField[], options, false);
 
@@ -229,7 +215,7 @@ function generateMixinArtifacts(
 
   collectTraitImports(extendedTraits, imports, options);
 
-  const traitSchemaName = `${toPascalCase(baseName)}Schema`;
+  const traitSchemaName = entity.schemaName;
   const traitInternalName = pascalToKebab(mixinName);
   const traitSchemaObject = buildTraitSchemaObject(traitFields as SchemaField[], extendedTraits, {
     name: traitInternalName,
@@ -262,7 +248,7 @@ function generateMixinArtifacts(
       filePath,
       source,
       baseName,
-      `${toPascalCase(mixinName)}Extension`,
+      entity.extensionName,
       extensionProperties,
       options,
       traitInterfaceName,

@@ -2,7 +2,6 @@ import { parse, type SgNode } from '@ast-grep/napi';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { dirname, join, resolve } from 'path';
 
-import type { Filename } from '../codemod.js';
 import type { TransformOptions } from '../config.js';
 import type { SchemaField, TransformArtifact } from '../utils/ast-utils.js';
 import {
@@ -23,7 +22,6 @@ import {
   findDefaultExport,
   findEmberImportLocalName,
   generateCommonWarpDriveImports,
-  generateExportStatement,
   generateMergedSchemaCode,
   getEmberDataImports,
   getExportedIdentifier,
@@ -35,7 +33,6 @@ import {
   mixinNameToTraitName,
   parseDecoratorArgumentsWithNodes,
   toPascalCase,
-  withTransformWrapper,
 } from '../utils/ast-utils.js';
 import {
   FILE_EXTENSION_JS,
@@ -59,15 +56,13 @@ import { createExtensionFromOriginalFile } from '../utils/extension-generation.j
 import type { ParsedFile } from '../utils/file-parser.js';
 import { isClassMethodSyntax } from '../utils/file-parser.js';
 import { replaceWildcardPattern } from '../utils/path-utils.js';
+import type { SchemaEntity } from '../utils/schema-entity.js';
 import {
   MODEL_NAME_SUFFIX_REGEX,
-  NAMED_TYPE_IMPORT_REGEX,
   normalizePath,
   pascalToKebab,
-  RELATIVE_TYPE_IMPORT_REGEX,
   removeFileExtension,
   removeQuoteChars,
-  SCHEMA_SUFFIX_REGEX,
   toKebabCase,
   TRAILING_MODEL_SUFFIX_REGEX,
 } from '../utils/string.js';
@@ -91,9 +86,6 @@ const FRAGMENT_DECORATOR_SOURCE = 'ember-data-model-fragments/attributes';
 
 /** Fragment base class import source */
 const FRAGMENT_BASE_SOURCE = 'ember-data-model-fragments/fragment';
-
-/** Cache for mixin extension analysis results to avoid re-parsing mixin files */
-const mixinExtensionCache = new Map<string, { hasExtension: boolean; extensionName: string | null }>();
 
 /**
  * Get the base EmberData Model properties and methods that should be available on all model types.
@@ -380,59 +372,6 @@ function analyzeModelFile(filePath: string, source: string, options: TransformOp
 /**
  * Transform to convert EmberData models to WarpDrive LegacyResourceSchema patterns
  */
-export default function transform(filePath: string, source: string, options: TransformOptions): string {
-  return withTransformWrapper(
-    filePath,
-    source,
-    options,
-    'model-to-schema',
-    (_root, sourceContent, filePathParam, optionsParam) => {
-      const analysis = analyzeModelFile(filePathParam, sourceContent, optionsParam);
-
-      if (!analysis.isValid) {
-        debugLog(optionsParam, 'Model analysis failed, skipping transform');
-        return sourceContent;
-      }
-
-      const {
-        defaultExportNode,
-        schemaFields,
-        extensionProperties,
-        mixinTraits,
-        mixinExtensions,
-        modelName,
-        baseName,
-      } = analysis;
-
-      debugLog(
-        optionsParam,
-        `Found ${schemaFields.length} schema fields and ${extensionProperties.length} extension properties`
-      );
-
-      // Transform relative model imports to schema type imports first
-      const transformedSource = transformModelImportsInSource(sourceContent, _root);
-
-      // Generate the replacement schema
-      const replacement = generateLegacyResourceSchema(
-        modelName,
-        baseName,
-        schemaFields,
-        mixinTraits,
-        mixinExtensions,
-        extensionProperties,
-        transformedSource
-      );
-
-      if (!defaultExportNode) {
-        return transformedSource;
-      }
-
-      const original = defaultExportNode.text();
-      return transformedSource.replace(original, replacement);
-    }
-  );
-}
-
 /**
  * Resolve import path using additionalModelSources and additionalMixinSources patterns
  */
@@ -627,12 +566,13 @@ export function processIntermediateModelsToTraits(
  * Generate artifacts for regular models (both internal and external)
  */
 function generateRegularModelArtifacts(
-  filePath: string,
-  source: string,
+  entity: SchemaEntity,
   analysis: ModelAnalysisResult,
   options: TransformOptions
 ): TransformArtifact[] {
-  const { schemaFields, extensionProperties, mixinTraits, mixinExtensions, modelName, baseName, isFragment } = analysis;
+  const filePath = entity.path;
+  const source = entity.parsedFile.source;
+  const { schemaFields, extensionProperties, mixinTraits, mixinExtensions, baseName, isFragment } = analysis;
   const artifacts: TransformArtifact[] = [];
 
   // Determine the file extension based on the original model file
@@ -658,14 +598,14 @@ function generateRegularModelArtifacts(
   collectTraitImports(mixinTraits, schemaImports, options);
 
   // Build the schema object
-  const schemaName = `${modelName}Schema`;
+  const schemaName = entity.schemaName;
   const schemaObject = buildLegacySchemaObject(baseName, schemaFields, mixinTraits, mixinExtensions, isFragment);
 
   // Generate merged schema code (schema + types in one file)
-  const extensionName = extensionProperties.length > 0 ? `${modelName}Extension` : undefined;
+  const extensionName = entity.extensionNameIfNeeded;
   const mergedSchemaCode = generateMergedSchemaCode({
     baseName,
-    interfaceName: modelName,
+    interfaceName: entity.interfaceName,
     schemaName,
     schemaObject,
     properties: schemaFieldTypes,
@@ -683,7 +623,7 @@ function generateRegularModelArtifacts(
     suggestedFileName: `${baseName}.schema${originalExtension}`,
   });
 
-  const modelInterfaceName = `${modelName}Trait`;
+  const modelInterfaceName = entity.traitInterfaceName;
   const modelImportPath = options?.resourcesImport
     ? `${options.resourcesImport}/${baseName}.schema`
     : `../resources/${baseName}.schema`;
@@ -691,7 +631,7 @@ function generateRegularModelArtifacts(
     filePath,
     source,
     baseName,
-    `${modelName}Extension`,
+    entity.extensionName,
     extensionProperties,
     options,
     modelInterfaceName,
@@ -709,15 +649,15 @@ function generateRegularModelArtifacts(
   return artifacts;
 }
 
-export function toArtifacts(parsedFile: ParsedFile, options: TransformOptions): TransformArtifact[] {
-  debugLog(options, `=== DEBUG: Processing ${parsedFile.path} ===`);
+export function toArtifacts(entity: SchemaEntity, options: TransformOptions): TransformArtifact[] {
+  debugLog(options, `=== DEBUG: Processing ${entity.path} ===`);
 
-  const analysis = analyzeModelFromParsed(parsedFile, options);
+  const analysis = analyzeModelFromParsed(entity.parsedFile, options);
   if (!analysis.isValid) {
     debugLog(options, 'Model analysis failed, skipping artifact generation');
     return [];
   }
-  return generateRegularModelArtifacts(parsedFile.path, parsedFile.source, analysis, options);
+  return generateRegularModelArtifacts(entity, analysis, options);
 }
 
 /**
@@ -1705,131 +1645,14 @@ function extractMixinTraits(
 }
 
 /**
- * Get mixin extension names based on model imports.
+ * Get mixin extension names using the entity registry.
  */
 function extractMixinExtensions(filePath: string, options?: TransformOptions): string[] {
-  const mixinExtensions: string[] = [];
+  const registry = options?.entityRegistry;
+  if (!registry) return [];
 
-  const modelMixins = options?.modelToMixinsMap?.get(filePath);
-  if (!modelMixins || modelMixins.size === 0) {
-    return mixinExtensions;
-  }
+  const entity = registry.get(filePath);
+  if (!entity) return [];
 
-  for (const mixinFilePath of modelMixins) {
-    // Check the mixinExtensionCache to see if this mixin has an extension
-    const cacheEntry = mixinExtensionCache.get(mixinFilePath);
-    if (cacheEntry?.hasExtension && cacheEntry.extensionName) {
-      const basePart = cacheEntry.extensionName.replace(/Extension$/, '');
-      mixinExtensions.push(`${toPascalCase(basePart)}Extension`);
-    }
-  }
-
-  return mixinExtensions;
-}
-
-/**
- * Pre-analyze all mixins in modelConnectedMixins to populate the extension cache
- * Uses pre-parsed ParsedFile data to avoid redundant AST parsing.
- */
-export function preAnalyzeConnectedMixinExtensions(
-  parsedMixins: Map<Filename, ParsedFile>,
-  options: TransformOptions
-): void {
-  if (!options.modelConnectedMixins || options.modelConnectedMixins.size === 0) {
-    debugLog(options, 'No modelConnectedMixins to pre-analyze');
-    return;
-  }
-
-  for (const mixinFilePath of options.modelConnectedMixins) {
-    const parsedMixin = parsedMixins.get(mixinFilePath);
-    if (mixinExtensionCache.has(mixinFilePath) || !parsedMixin) {
-      continue;
-    }
-
-    try {
-      // Use pre-parsed data instead of re-parsing the file
-      const hasExtension = parsedMixin.hasExtension;
-      const extensionName = hasExtension ? `${parsedMixin.camelName}Extension` : null;
-
-      mixinExtensionCache.set(mixinFilePath, { hasExtension, extensionName });
-    } catch {
-      mixinExtensionCache.set(mixinFilePath, { hasExtension: false, extensionName: null });
-    }
-  }
-}
-
-/**
- * Generate LegacyResourceSchema object
- */
-function generateLegacyResourceSchema(
-  modelName: string,
-  type: string,
-  schemaFields: SchemaField[],
-  mixinTraits: string[],
-  mixinExtensions: string[],
-  extensionProperties: Array<{ name: string; originalKey: string; value: string }>,
-  source?: string
-): string {
-  const schemaName = `${modelName}Schema`;
-  const extensionName = `${modelName}Extension`;
-
-  const objectExtensions = [...mixinExtensions];
-  if (extensionProperties.length > 0) {
-    objectExtensions.push(extensionName);
-  }
-
-  const legacySchema = buildLegacySchemaObject(type, schemaFields, mixinTraits, objectExtensions);
-
-  return generateExportStatement(schemaName, legacySchema);
-}
-
-/**
- * Transform relative model imports in source to schema type imports
- */
-function transformModelImportsInSource(source: string, root: SgNode): string {
-  let result = source;
-
-  // Find all import declarations
-  const imports = root.findAll({ rule: { kind: 'import_statement' } });
-
-  for (const importNode of imports) {
-    const importText = importNode.text();
-
-    // Check if this is a relative import to another model file
-    // Pattern 1: import type SomeThing from './some-thing';
-    const relativeImportMatch = importText.match(RELATIVE_TYPE_IMPORT_REGEX);
-    // Pattern 2: import type { SomeThing } from './some-thing.schema';
-    const namedImportMatch = importText.match(NAMED_TYPE_IMPORT_REGEX);
-
-    if (relativeImportMatch) {
-      const [fullMatch, typeName, relativePath] = relativeImportMatch;
-
-      // Transform to named import from schema
-      // e.g., import type SomeThing from './some-thing.ts';
-      // becomes import type { SomeThing } from './some-thing.schema';
-      // But remove 'Model' suffix if present since interfaces don't use it
-      const pathWithoutExtension = removeFileExtension(relativePath);
-      const interfaceName = typeName.endsWith('Model') ? typeName.slice(0, -5) : typeName;
-
-      const transformedImport =
-        typeName !== interfaceName
-          ? `import type { ${interfaceName} as ${typeName} } from '${pathWithoutExtension}.schema';`
-          : `import type { ${typeName} } from '${pathWithoutExtension}.schema';`;
-
-      result = result.replace(fullMatch, transformedImport);
-    } else if (namedImportMatch) {
-      const [fullMatch, typeName, relativePath] = namedImportMatch;
-
-      // Handle named imports from schema files - fix Model suffix issue
-      if (relativePath.includes('.schema') && typeName.endsWith('Model')) {
-        const pathWithoutExtension = relativePath.replace(SCHEMA_SUFFIX_REGEX, '');
-        const interfaceName = typeName.slice(0, -5); // Remove 'Model' suffix
-        const transformedImport = `import type { ${interfaceName} as ${typeName} } from '${pathWithoutExtension}.schema';`;
-
-        result = result.replace(fullMatch, transformedImport);
-      }
-    }
-  }
-
-  return result;
+  return entity.traitExtensionNames;
 }
