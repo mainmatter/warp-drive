@@ -100,8 +100,4 @@ export {
 } from './import-utils.js';
 
 // Re-export from extension-generation
-export {
-  generateExtensionCode,
-  createExtensionFromOriginalFile,
-  appendExtensionSignatureType,
-} from './extension-generation.js';
+export { generateExtensionCode, createExtensionFromOriginalFile } from './extension-generation.js';

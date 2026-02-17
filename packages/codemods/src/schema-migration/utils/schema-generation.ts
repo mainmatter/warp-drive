@@ -125,7 +125,7 @@ export function buildLegacySchemaObject(
   };
 
   if (mixinTraits.length > 0) {
-    legacySchema.traits = mixinTraits;
+    legacySchema.traits = [...mixinTraits];
   }
 
   if (mixinExtensions.length > 0 || isFragment) {
@@ -532,6 +532,8 @@ export interface MergedSchemaOptions {
   isTypeScript: boolean;
   /** Transform options */
   options?: TransformOptions;
+  /** Extension name (e.g., 'UserExtension') -> when set with traits, triggers composite interface pattern */
+  extensionName?: string;
 }
 
 /**
@@ -626,9 +628,29 @@ function generateInterfaceOnly(
  * This creates a single .schema.js or .schema.ts file with everything needed
  */
 export function generateMergedSchemaCode(opts: MergedSchemaOptions): string {
-  const { schemaName, interfaceName, schemaObject, properties, traits = [], imports = new Set(), isTypeScript } = opts;
+  const {
+    baseName,
+    schemaName,
+    interfaceName,
+    schemaObject,
+    properties,
+    traits = [],
+    imports = new Set(),
+    isTypeScript,
+    options,
+    extensionName,
+  } = opts;
+
+  const useComposite = isTypeScript && Boolean(extensionName) && traits.length > 0;
 
   const sections: string[] = [];
+
+  if (useComposite) {
+    const extensionImportPath = options?.resourcesImport
+      ? `${options.resourcesImport}/${baseName}.ext`
+      : `../resources/${baseName}.ext`;
+    imports.add(`type { ${extensionName} } from '${extensionImportPath}'`);
+  }
 
   // Generate imports section (only for TypeScript)
   if (isTypeScript) {
@@ -646,8 +668,20 @@ export function generateMergedSchemaCode(opts: MergedSchemaOptions): string {
   sections.push(`\nexport default ${schemaName};`);
 
   // Generate interface (only for TypeScript)
-  if (isTypeScript) {
-    // Build extends clause from traits
+  if (useComposite) {
+    // Composite pattern: field interface is {Name}Trait, composite is {Name}
+    const fieldInterfaceName = `${interfaceName}Trait`;
+    const fieldInterfaceCode = generateInterfaceOnly(fieldInterfaceName, properties);
+    sections.push('');
+    sections.push(fieldInterfaceCode);
+
+    // Composite interface merges field interface, extension, and trait interfaces
+    const traitInterfaces = traits.map(traitNameToInterfaceName);
+    const compositeExtends = [fieldInterfaceName, extensionName, ...traitInterfaces].join(', ');
+    sections.push('');
+    sections.push(`export interface ${interfaceName} extends ${compositeExtends} {}`);
+  } else {
+    // Standard pattern: single interface with optional trait extends
     let extendsClause: string | undefined;
     if (traits.length > 0) {
       const traitInterfaces = traits.map(traitNameToInterfaceName);
